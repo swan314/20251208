@@ -1,13 +1,592 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>20251208</title>
+    <title>그래프 분석 챗봇</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@latest/dist/handsontable.full.min.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 40px);
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+      }
+
+      .header p {
+        opacity: 0.9;
+        font-size: 1.1em;
+      }
+
+      .content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .left-section {
+        flex: 0 0 30%;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #e0e0e0;
+        background: #fafafa;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .middle-section {
+        flex: 0 0 35%;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #e0e0e0;
+        background: #ffffff;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .right-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      .steps-container {
+        flex: 1;
+        padding: 30px;
+        min-height: min-content;
+      }
+      
+      .reset-button-container {
+        margin-bottom: 20px;
+        padding: 20px 0;
+      }
+
+      .middle-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        min-height: min-content;
+      }
+
+      .data-input-container {
+        flex: 0 0 60%;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 20px;
+        min-height: 450px;
+      }
+
+      .chart-display-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 300px;
+      }
+
+      .step {
+        background: white;
+        border-radius: 15px;
+        padding: 30px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .step-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+
+      .step-number {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.2em;
+        margin-right: 15px;
+      }
+
+      .step-title {
+        font-size: 1.5em;
+        font-weight: 600;
+        color: #333;
+      }
+
+      .step.completed .step-number {
+        background: #28a745;
+      }
+
+      .step.active .step-number {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+
+      .step.inactive {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      .step.inactive .button-group {
+        display: none;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #555;
+        font-size: 1em;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 16px;
+        outline: none;
+        transition: border-color 0.3s;
+        font-family: inherit;
+      }
+
+      .form-group input:focus {
+        border-color: #667eea;
+      }
+
+      .table-container {
+        flex: 1;
+        overflow: visible;
+        margin-top: 10px;
+        min-height: 350px;
+        position: relative;
+        display: block;
+      }
+
+      #dataTable {
+        width: 100% !important;
+        height: 350px !important;
+        min-height: 350px;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+        justify-content: flex-start;
+      }
+
+      .step.active .button-group {
+        display: flex;
+      }
+
+      .btn {
+        padding: 12px 30px;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+        font-family: inherit;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+      }
+
+      .btn-secondary {
+        background: #6c757d;
+        color: white;
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4);
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .chart-wrapper {
+        flex: 1;
+        position: relative;
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        min-height: 300px;
+      }
+
+      .analysis-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        min-height: min-content;
+      }
+
+      .chart-analysis {
+        flex: 1;
+        padding: 20px;
+        border-radius: 10px;
+        overflow-y: auto;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .section-title {
+        font-size: 1.3em;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e0e0e0;
+      }
+
+      .conversation-container {
+        margin-top: 20px;
+      }
+
+      .conversation-message {
+        margin-bottom: 15px;
+        padding: 12px;
+        border-radius: 8px;
+      }
+
+      .conversation-message.teacher {
+        background: #f0f4ff;
+        border-left: 4px solid #667eea;
+      }
+
+      .conversation-message.student {
+        background: #fff4e6;
+        border-left: 4px solid #ff9800;
+      }
+
+      .conversation-message.analysis {
+        background: #e8f5e9;
+        border-left: 4px solid #4caf50;
+        margin-top: 10px;
+        margin-bottom: 10px;
+      }
+
+      .conversation-message.writing {
+        background: #fff9e6;
+        border-left: 4px solid #ffc107;
+        margin-top: 10px;
+        margin-bottom: 10px;
+      }
+
+      .writing-input-area {
+        margin-top: 20px;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 10px;
+        border: 2px solid #667eea;
+      }
+
+      .writing-type-select {
+        width: 100%;
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 14px;
+        outline: none;
+        font-family: inherit;
+        margin-bottom: 15px;
+        background: white;
+      }
+
+      .writing-type-select:focus {
+        border-color: #667eea;
+      }
+
+      .conversation-input-area {
+        margin-top: 15px;
+        display: flex;
+        gap: 10px;
+      }
+
+      .conversation-input {
+        flex: 1;
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 14px;
+        outline: none;
+        font-family: inherit;
+      }
+
+      .conversation-input:focus {
+        border-color: #667eea;
+      }
+
+      .conversation-btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s;
+        font-family: inherit;
+      }
+
+      .conversation-btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+
+      .conversation-btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+      }
+
+      .conversation-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .save-result-btn {
+        margin-top: 15px;
+        padding: 12px 30px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s;
+        font-family: inherit;
+        display: none;
+      }
+
+      .save-result-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+      }
+
+      .conversation-counter {
+        font-size: 0.9em;
+        color: #666;
+        margin-bottom: 10px;
+      }
+
+      .chart-analysis h3 {
+        color: #667eea;
+        margin-bottom: 10px;
+      }
+
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(102, 126, 234, 0.3);
+        border-radius: 50%;
+        border-top-color: #667eea;
+        animation: spin 1s ease-in-out infinite;
+        margin-right: 10px;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .error {
+        color: #e74c3c;
+        background: #fee;
+        padding: 10px;
+        border-radius: 8px;
+        margin: 10px 0;
+      }
+
+      .info-text {
+        color: #666;
+        font-size: 0.9em;
+        margin-top: 5px;
+      }
+
+      /* 스크롤바 스타일 개선 */
+      .left-section::-webkit-scrollbar,
+      .middle-section::-webkit-scrollbar,
+      .right-section::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .left-section::-webkit-scrollbar-track,
+      .middle-section::-webkit-scrollbar-track,
+      .right-section::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+      }
+
+      .left-section::-webkit-scrollbar-thumb,
+      .middle-section::-webkit-scrollbar-thumb,
+      .right-section::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+      }
+
+      .left-section::-webkit-scrollbar-thumb:hover,
+      .middle-section::-webkit-scrollbar-thumb:hover,
+      .right-section::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
+    <div class="container">
+      <div class="header">
+        <h1>📊 그래프 분석 챗봇</h1>
+        <p>단계별로 데이터를 입력하면 그래프를 그리고 분석해드립니다</p>
+      </div>
+      <div class="content">
+        <div class="left-section">
+          <div class="steps-container">
+            <!-- 새로 분석하기 버튼 -->
+            <div class="reset-button-container" style="text-align: center; margin-bottom: 20px; padding: 20px 0;">
+              <button class="btn btn-secondary" id="resetAnalysisBtn" style="display: none;">새로 분석하기</button>
+            </div>
+            <!-- 0단계: 주제 입력 -->
+            <div class="step active" id="step0">
+              <div class="step-header">
+                <div class="step-number">0</div>
+                <div class="step-title">주제 입력하기</div>
+              </div>
+              <div class="form-group">
+                <label for="topic">그래프 주제</label>
+                <input type="text" id="topic" placeholder="예: 월별 매출 변화, 시간에 따른 온도 변화, 실험 결과 분석" />
+                <div class="info-text">이 그래프가 무엇에 대한 것인지 주제를 입력하세요</div>
+              </div>
+              <div class="button-group">
+                <button class="btn btn-primary" id="nextToStep1">다음 단계</button>
+              </div>
+            </div>
+
+            <!-- 1단계: 변수와 단위 입력 -->
+            <div class="step inactive" id="step1">
+              <div class="step-header">
+                <div class="step-number">1</div>
+                <div class="step-title">변수와 단위 입력하기</div>
+              </div>
+              <div class="form-group">
+                <label for="xVariable">X축 변수명</label>
+                <input type="text" id="xVariable" placeholder="예: 시간, 월, 온도" />
+                <div class="info-text">X축에 표시될 변수의 이름을 입력하세요</div>
+              </div>
+              <div class="form-group">
+                <label for="xUnit">X축 단위</label>
+                <input type="text" id="xUnit" placeholder="예: 월, °C, kg" />
+                <div class="info-text">X축 변수의 단위를 입력하세요 (선택사항)</div>
+              </div>
+              <div class="form-group">
+                <label for="yVariable">Y축 변수명</label>
+                <input type="text" id="yVariable" placeholder="예: 매출, 수량, 값" />
+                <div class="info-text">Y축에 표시될 변수의 이름을 입력하세요</div>
+              </div>
+              <div class="form-group">
+                <label for="yUnit">Y축 단위</label>
+                <input type="text" id="yUnit" placeholder="예: 원, 개, %" />
+                <div class="info-text">Y축 변수의 단위를 입력하세요 (선택사항)</div>
+              </div>
+              <div class="button-group">
+                <button class="btn btn-secondary" id="backToStep0">이전 단계</button>
+                <button class="btn btn-primary" id="nextToStep2">다음 단계</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <div class="middle-section">
+          <div class="middle-content">
+            <!-- 2단계: 자료 입력 -->
+            <div class="data-input-container inactive" id="step2">
+              <div class="section-title">2. 자료 입력하기</div>
+              <div class="table-container">
+                <div id="dataTable"></div>
+              </div>
+              <div class="button-group" style="margin-top: 15px;">
+                <button class="btn btn-secondary" id="backToStep1">이전 단계</button>
+                <button class="btn btn-primary" id="generateChart">그래프 생성 및 분석</button>
+              </div>
+            </div>
+            <!-- 3단계: 그래프 보여주기 -->
+            <div class="chart-display-container">
+              <div class="section-title">3. 그래프 보여주기</div>
+              <div class="chart-wrapper">
+                <canvas id="chartCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="right-section">
+          <div class="analysis-section">
+            <div class="section-title">4. 그래프 해석하기</div>
+            <div class="chart-analysis" id="chartAnalysis">
+              <h3>📈 그래프 해석</h3>
+              <p>데이터를 입력하고 그래프를 생성하면 해석 대화가 시작됩니다.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@latest/dist/handsontable.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script type="module" src="/src/chatbot.js"></script>
   </body>
 </html>

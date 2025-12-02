@@ -10,5 +10,9 @@
   },
   "devDependencies": {
     "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "handsontable": "^16.1.1"
   }
 }
