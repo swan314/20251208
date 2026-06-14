@@ -1,0 +1,23 @@
+﻿ruleName,template
+change_pattern,[xLabel]가 변할 때 [yLabel]는 어떻게 변하나요?
+change_rate_compare,[yLabel]의 변화가 더 빠른 구간과 더 느린 구간을 비교해 보세요.
+compare_summary,두 대상의 변화를 비교하여 설명해 보세요.
+constant_section,[yLabel]가 변하지 않는 구간은 어디인가요?
+feature_summary,이 그래프의 특징을 설명해 보세요.
+final_value,마지막에는 [yLabel]가 얼마인가요?
+increase_decrease,[yLabel]가 증가하는 구간과 감소하는 구간은 어디인가요?
+insight_summary,이 그래프를 보고 알 수 있는 사실을 설명해 보세요.
+intersection_point,두 그래프가 만나는 지점은 어디인가요?
+max_min_value,가장 큰 [yLabel]와 가장 작은 [yLabel]는 각각 얼마인가요?
+max_value,가장 큰 [yLabel]는 얼마인가요?
+max_value_section,[yLabel]가 가장 큰 구간은 어디인가요?
+point_value,[xValue][xUnit]일 때 [yLabel]는 얼마인가요?
+relation_check,이 그래프는 무엇과 무엇 사이의 관계를 나타내나요?
+repeat_check,비슷한 변화가 반복되나요?
+repeat_cycle,비슷한 변화는 몇 [xUnit]마다 반복되나요?
+repeat_pattern,어떤 변화가 반복되고 있나요?
+repeat_reason,왜 이런 변화가 반복된다고 볼 수 있을까요?
+stop_section,[yLabel]가 0인 구간은 어디인가요?
+summary,그래프가 나타내는 상황을 순서대로 설명해 보세요.
+trend_direction,전체적으로 [yLabel]는 어떻게 변하고 있나요?
+value_compare,같은 [xLabel]에서 두 대상의 [yLabel]를 비교해 보세요.

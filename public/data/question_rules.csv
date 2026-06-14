@@ -1,0 +1,41 @@
+﻿questionSet,ruleOrder,ruleName,ruleDescription
+time_distance,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+time_distance,2,point_value,주요 시점의 이동 거리를 묻는다.
+time_distance,3,constant_section,변화가 없는 구간이 있으면 묻는다.
+time_distance,4,final_value,마지막 시점의 이동 거리를 묻는다.
+time_distance,5,summary,전체 이동 과정을 설명하게 한다.
+time_speed,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+time_speed,2,point_value,특정 시각의 속력을 묻는다.
+time_speed,3,max_value,가장 빠르게 이동한 구간을 묻는다.
+time_speed,4,stop_section,정지한 구간이 있으면 묻는다.
+time_speed,5,increase_decrease,속력이 증가하는 구간과 감소하는 구간을 묻는다.
+time_speed,6,summary,자동차의 이동 과정을 설명하게 한다.
+time_height,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+time_height,2,point_value,특정 시각의 높이를 묻는다.
+time_height,3,max_min_value,가장 높은 때와 가장 낮은 때를 묻는다.
+time_height,4,repeat_check,반복되는 변화가 있는지 묻는다.
+time_height,5,summary,높이 변화를 순서대로 설명하게 한다.
+time_temperature,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+time_temperature,2,point_value,특정 시각의 온도를 묻는다.
+time_temperature,3,max_min_value,가장 높은 온도와 가장 낮은 온도를 묻는다.
+time_temperature,4,repeat_reason,온도가 반복적으로 변하는 이유를 생각하게 한다.
+time_temperature,5,summary,온도 변화를 설명하게 한다.
+speed_output,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+speed_output,2,point_value,특정 풍속에서의 발전량을 묻는다.
+speed_output,3,max_value_section,발전량이 가장 큰 풍속 구간을 묻는다.
+speed_output,4,change_pattern,풍속 변화에 따라 발전량이 어떻게 변하는지 묻는다.
+speed_output,5,feature_summary,그래프의 특징을 설명하게 한다.
+year_concentration,1,relation_check,그래프가 나타내는 두 양을 확인한다.
+year_concentration,2,point_value,특정 연도의 농도를 묻는다.
+year_concentration,3,max_min_value,가장 큰 값과 가장 작은 값을 묻는다.
+year_concentration,4,trend_direction,전체적인 변화 경향을 묻는다.
+year_concentration,5,insight_summary,그래프를 보고 알 수 있는 사실을 설명하게 한다.
+trend,1,trend_direction,전체적인 증가·감소 경향을 묻는다.
+trend,2,change_rate_compare,변화 속도를 비교하게 한다.
+trend,3,insight_summary,그래프를 통해 알 수 있는 사실을 설명하게 한다.
+periodic,1,repeat_pattern,반복되는 변화가 있는지 묻는다.
+periodic,2,repeat_cycle,반복 주기를 묻는다.
+periodic,3,repeat_reason,반복되는 이유를 생각하게 한다.
+comparison,1,value_compare,두 대상의 값을 비교하게 한다.
+comparison,2,intersection_point,교점이나 만나는 시점을 찾게 한다.
+comparison,3,compare_summary,차이점을 설명하게 한다.
