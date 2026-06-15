@@ -14,6 +14,8 @@ const SERIES_COLORS = [
   { border: '#ea5455', background: 'rgba(234, 84, 85, 0.2)' },
 ]
 
+const LINE_BORDER_WIDTH = 4
+
 function formatAxisTitle(label, unit) {
   const name = label?.trim()
   const unitText = unit?.trim()
@@ -59,6 +61,142 @@ function parseTick(value) {
   return tick
 }
 
+function getDecimalPlaces(step) {
+  if (Number.isInteger(step)) return 0
+  const stepText = String(step)
+  const dotIndex = stepText.indexOf('.')
+  return dotIndex === -1 ? 0 : stepText.length - dotIndex - 1
+}
+
+function snapToTick(value, step) {
+  const decimals = getDecimalPlaces(step)
+  return Number(value.toFixed(decimals))
+}
+
+function approxEqual(a, b) {
+  return Math.abs(a - b) < 1e-6
+}
+
+function shouldAnchorZero(dataMin, dataMax) {
+  if (dataMin <= 0) return true
+  if (approxEqual(dataMax, 0)) return true
+  if (dataMax <= 0) return true
+
+  // 시간·거리처럼 원점 근처에서 시작하는 데이터만 0을 포함합니다.
+  return dataMin <= dataMax * 0.15
+}
+
+function isCarouselHeightProblem(problem) {
+  return problem.keyword?.trim() === '회전목마'
+}
+
+function isTideHeightProblem(problem) {
+  return problem.keyword?.trim() === '바다'
+}
+
+function shouldAnchorYZero(dataMin, dataMax, problem) {
+  if (isCarouselHeightProblem(problem)) return true
+  if (isTideHeightProblem(problem)) return true
+  return shouldAnchorZero(dataMin, dataMax)
+}
+
+function buildCarouselHeightYTicks(yTick) {
+  if (!yTick) {
+    return { min: undefined, max: undefined, stepSize: undefined }
+  }
+
+  const displayMax = 3
+
+  return {
+    min: 0,
+    max: snapToTick(Math.ceil(displayMax / yTick) * yTick, yTick),
+    stepSize: yTick,
+  }
+}
+
+function computeEducationalAxisBounds(dataMin, dataMax, tick, includeOrigin) {
+  if (!tick) {
+    return { min: undefined, max: undefined, stepSize: undefined }
+  }
+
+  const baseMin = includeOrigin ? Math.min(0, dataMin) : dataMin
+  let alignedMin = snapToTick(Math.floor(baseMin / tick) * tick, tick)
+
+  const baseMax = includeOrigin ? Math.max(0, dataMax) : dataMax
+  let alignedMax = snapToTick(Math.ceil(baseMax / tick) * tick, tick)
+
+  if (approxEqual(alignedMax, dataMax)) {
+    alignedMax = snapToTick(alignedMax + tick, tick)
+  }
+
+  if (alignedMax <= alignedMin) {
+    alignedMax = snapToTick(alignedMin + tick, tick)
+  }
+
+  return {
+    min: alignedMin,
+    max: alignedMax,
+    stepSize: tick,
+  }
+}
+
+function generateTickValues(min, max, step) {
+  const ticks = []
+  const count = Math.round((max - min) / step)
+
+  for (let i = 0; i <= count; i += 1) {
+    ticks.push(snapToTick(min + i * step, step))
+  }
+
+  return ticks
+}
+
+function isYearAxis(label, unit) {
+  return label?.trim() === '연도' || unit?.trim() === '년'
+}
+
+function formatTickLabel(value, step, useIntegerLabels) {
+  const snapped = snapToTick(value, step)
+
+  if (useIntegerLabels || (Number.isInteger(step) && step >= 1)) {
+    if (!approxEqual(snapped, Math.round(snapped))) return ''
+    return String(Math.round(snapped))
+  }
+
+  return String(snapped)
+}
+
+function buildEducationalAxisTicks(tick, bounds, includeOrigin) {
+  return computeEducationalAxisBounds(bounds.min, bounds.max, tick, includeOrigin)
+}
+
+function buildEducationalScaleOptions(tickConfig, axisTickStyle, labelOptions = {}) {
+  if (!tickConfig.stepSize) {
+    return {
+      ticks: { ...axisTickStyle },
+    }
+  }
+
+  const { min, max, stepSize } = tickConfig
+  const useIntegerLabels = Boolean(labelOptions.integerLabels)
+
+  return {
+    min,
+    max,
+    ticks: {
+      ...axisTickStyle,
+      stepSize,
+      autoSkip: false,
+      maxTicksLimit: 1000,
+      includeBounds: false,
+      callback: (value) => formatTickLabel(value, stepSize, useIntegerLabels),
+    },
+    afterBuildTicks: (scale) => {
+      scale.ticks = generateTickValues(min, max, stepSize).map((value) => ({ value }))
+    },
+  }
+}
+
 function getSeriesBounds(series) {
   let minX = Infinity
   let maxX = -Infinity
@@ -81,37 +219,6 @@ function getSeriesBounds(series) {
   return { minX, maxX, minY, maxY }
 }
 
-function computeAlignedAxisBounds(min, max, tick) {
-  if (!tick) {
-    return { min: undefined, max: undefined }
-  }
-
-  const axisMin = Math.min(0, min)
-  const axisMax = Math.max(0, max)
-  let alignedMin = Math.floor(axisMin / tick) * tick
-  let alignedMax = Math.ceil(axisMax / tick) * tick
-
-  if (approxEqual(alignedMin, alignedMax)) {
-    alignedMax += tick
-  }
-
-  return { min: alignedMin, max: alignedMax }
-}
-
-function approxEqual(a, b) {
-  return Math.abs(a - b) < 1e-6
-}
-
-function buildAxisTicks(tick, bounds) {
-  const aligned = computeAlignedAxisBounds(bounds.min, bounds.max, tick)
-
-  return {
-    stepSize: tick,
-    min: aligned.min,
-    max: aligned.max,
-  }
-}
-
 function normalizeGraphType(graphType) {
   const type = (graphType || 'line').trim().toLowerCase()
 
@@ -131,7 +238,7 @@ function buildDatasets(series, graphType) {
       data: item.points,
       borderColor: color.border,
       backgroundColor: color.background,
-      borderWidth: 2.5,
+      borderWidth: normalized === 'scatter' ? 0 : LINE_BORDER_WIDTH,
       pointRadius: normalized === 'scatter' ? 7 : 5,
       pointHoverRadius: normalized === 'scatter' ? 7 : 5,
       pointBackgroundColor: color.border,
@@ -177,12 +284,20 @@ export function renderProblemChart(canvas, problem) {
   const axisBorderStyle = {
     color: AXIS_BORDER_COLOR,
   }
+  const anchorXZero = bounds ? shouldAnchorZero(bounds.minX, bounds.maxX) : true
+  const anchorYZero = bounds ? shouldAnchorYZero(bounds.minY, bounds.maxY, problem) : true
   const xTicks = bounds && xTick
-    ? buildAxisTicks(xTick, { min: bounds.minX, max: bounds.maxX })
+    ? buildEducationalAxisTicks(xTick, { min: bounds.minX, max: bounds.maxX }, anchorXZero)
     : { stepSize: undefined, min: undefined, max: undefined }
   const yTicks = bounds && yTick
-    ? buildAxisTicks(yTick, { min: bounds.minY, max: bounds.maxY })
+    ? (isCarouselHeightProblem(problem)
+      ? buildCarouselHeightYTicks(yTick)
+      : buildEducationalAxisTicks(yTick, { min: bounds.minY, max: bounds.maxY }, anchorYZero))
     : { stepSize: undefined, min: undefined, max: undefined }
+  const xScaleOptions = buildEducationalScaleOptions(xTicks, axisTickStyle, {
+    integerLabels: isYearAxis(problem.xLabel, problem.xUnit),
+  })
+  const yScaleOptions = buildEducationalScaleOptions(yTicks, axisTickStyle)
 
   return new Chart(canvas, {
     type: graphType === 'scatter' ? 'scatter' : 'line',
@@ -210,8 +325,7 @@ export function renderProblemChart(canvas, problem) {
       scales: {
         x: {
           type: 'linear',
-          min: xTicks.min,
-          max: xTicks.max,
+          ...xScaleOptions,
           title: {
             display: true,
             text: formatAxisTitle(problem.xLabel, problem.xUnit),
@@ -219,27 +333,18 @@ export function renderProblemChart(canvas, problem) {
             padding: { top: 10 },
             color: TICK_COLOR,
           },
-          ticks: {
-            ...axisTickStyle,
-            stepSize: xTicks.stepSize,
-          },
           grid: axisGridStyle,
           border: axisBorderStyle,
         },
         y: {
           type: 'linear',
-          min: yTicks.min,
-          max: yTicks.max,
+          ...yScaleOptions,
           title: {
             display: true,
             text: formatAxisTitle(problem.yLabel, problem.yUnit),
             font: { size: 15, weight: '600', family: AXIS_FONT },
             padding: { bottom: 10 },
             color: TICK_COLOR,
-          },
-          ticks: {
-            ...axisTickStyle,
-            stepSize: yTicks.stepSize,
           },
           grid: axisGridStyle,
           border: axisBorderStyle,

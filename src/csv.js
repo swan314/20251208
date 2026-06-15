@@ -58,7 +58,9 @@ export function parseCSV(text) {
 }
 
 export async function fetchCSV(path) {
-  const response = await fetch(path)
+  const separator = path.includes('?') ? '&' : '?'
+  const url = `${path}${separator}t=${Date.now()}`
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`데이터를 불러오지 못했습니다: ${path} (${response.status})`)
   }
