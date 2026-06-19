@@ -1,5 +1,6 @@
 import { parseSeriesFromPoints } from './graph.js'
 import { isRuleApplicable } from './graphFeatures.js'
+import { withSubjectParticle, withTopicParticle } from '../shared/koreanParticles.mjs'
 
 /** @type {Record<string, string>[]} */
 let questionRules = []
@@ -180,24 +181,6 @@ function getSharedXValues(seriesList) {
   return [...firstXValues]
     .filter((x) => otherSeries.every((series) => series.points.some((point) => approxEqual(point.x, x))))
     .sort((a, b) => a - b)
-}
-
-function hasKoreanBatchim(text) {
-  if (!text) return false
-  const char = text.charAt(text.length - 1)
-  const code = char.charCodeAt(0)
-  if (code < 0xac00 || code > 0xd7a3) return false
-  return (code - 0xac00) % 28 !== 0
-}
-
-function withTopicParticle(label) {
-  if (!label) return ''
-  return `${label}${hasKoreanBatchim(label) ? '은' : '는'}`
-}
-
-function withSubjectParticle(label) {
-  if (!label) return ''
-  return `${label}${hasKoreanBatchim(label) ? '이' : '가'}`
 }
 
 function fixKoreanParticles(text, xLabel, yLabel) {

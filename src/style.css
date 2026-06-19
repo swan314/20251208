@@ -438,6 +438,132 @@ body {
   margin-top: 0.5rem;
 }
 
+.coaching-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.coaching-panel__mode {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.coaching-panel__mode--live {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.coaching-panel__prompt {
+  margin: 0 0 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.coaching-panel__loading {
+  margin: 0.75rem 0 0;
+  color: var(--color-primary-dark);
+  font-size: 0.92rem;
+}
+
+.coaching-panel__error {
+  margin: 0.75rem 0 0;
+  color: #b91c1c;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.coaching-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.coaching-panel__btn {
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.coaching-panel__btn--primary {
+  border: none;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.24);
+}
+
+.coaching-panel__btn--answer {
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.coaching-panel__btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.coaching-panel__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.coaching-result {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.coaching-result__section {
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--color-border);
+}
+
+.coaching-result__section--praise {
+  border-left: 4px solid #22c55e;
+}
+
+.coaching-result__section--question {
+  border-left: 4px solid #3b82f6;
+}
+
+.coaching-result__section--hint {
+  border-left: 4px solid #f59e0b;
+}
+
+.coaching-result__section--answer {
+  border-left: 4px solid #8b5cf6;
+  background: #faf5ff;
+}
+
+.coaching-result__label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.coaching-result__text {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
 .questions-progress {
   display: flex;
   align-items: center;

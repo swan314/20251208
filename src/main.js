@@ -1,4 +1,10 @@
 import './style.css'
+import {
+  buildReferenceAnswer,
+  initCoachingRules,
+  isCoachingApiConfigured,
+  requestCoaching,
+} from './aiCoaching.js'
 import { fetchCSV } from './csv.js'
 import { destroyProblemChart, renderProblemChart } from './graph.js'
 import { buildQuestions, initQuestionData } from './questions.js'
@@ -7,6 +13,7 @@ const DATA_PATHS = {
   problems: '/data/graph_problems.csv',
   rules: '/data/question_rules.csv',
   templates: '/data/question_templates.csv',
+  coachingRules: '/data/ai_coaching_rules.csv',
 }
 
 const KEYWORD_EMOJI = {
@@ -32,6 +39,17 @@ let problems = []
 /** @type {import('chart.js').Chart | null} */
 let currentChart = null
 
+/** @typedef {{
+ *   hintLevel: number,
+ *   coachingStepCount: number,
+ *   response: import('./aiCoaching.js').CoachingResponse | null,
+ *   revealedAnswer: string | null,
+ *   isAnswerComplete: boolean,
+ *   coachedAnswer: string,
+ *   loading: boolean,
+ *   error: string | null,
+ * }} QuestionCoachingState */
+
 /** @type {{
  *   problemId: string | null,
  *   questionsStarted: boolean,
@@ -40,6 +58,7 @@ let currentChart = null
  *   answers: Record<string, string>,
  *   finalInterpretation: string,
  *   questions: ReturnType<typeof buildQuestions>,
+ *   coachingByQuestion: Record<string, QuestionCoachingState>,
  * }} */
 let detailState = {
   problemId: null,
@@ -49,6 +68,7 @@ let detailState = {
   answers: {},
   finalInterpretation: '',
   questions: [],
+  coachingByQuestion: {},
 }
 
 /** @type {Record<string, string>} */
@@ -78,14 +98,16 @@ const RULE_SUMMARY_LABELS = {
 }
 
 async function loadAllData() {
-  const [problemsRows, rulesRows, templatesRows] = await Promise.all([
+  const [problemsRows, rulesRows, templatesRows, coachingRulesRows] = await Promise.all([
     fetchCSV(DATA_PATHS.problems),
     fetchCSV(DATA_PATHS.rules),
     fetchCSV(DATA_PATHS.templates),
+    fetchCSV(DATA_PATHS.coachingRules),
   ])
 
   problems = problemsRows.filter((row) => row.id?.trim())
   initQuestionData(rulesRows, templatesRows)
+  initCoachingRules(coachingRulesRows)
 }
 
 function escapeHtml(text) {
@@ -105,7 +127,141 @@ function createDefaultDetailState(problemId = null) {
     answers: {},
     finalInterpretation: '',
     questions: [],
+    coachingByQuestion: {},
   }
+}
+
+function createDefaultCoachingState() {
+  return {
+    hintLevel: 0,
+    coachingStepCount: 0,
+    response: null,
+    revealedAnswer: null,
+    isAnswerComplete: false,
+    coachedAnswer: '',
+    loading: false,
+    error: null,
+  }
+}
+
+const COACHING_STEPS_BEFORE_ANSWER = 3
+
+function canShowAnswerButton(coaching) {
+  return (
+    coaching.coachingStepCount >= COACHING_STEPS_BEFORE_ANSWER
+    && !coaching.revealedAnswer
+    && !coaching.isAnswerComplete
+  )
+}
+
+function isCoachingCompleteResponse(response) {
+  return Boolean(response?.isComplete)
+}
+
+function getCoachingState(questionId) {
+  if (!detailState.coachingByQuestion[questionId]) {
+    detailState.coachingByQuestion[questionId] = createDefaultCoachingState()
+  }
+
+  return detailState.coachingByQuestion[questionId]
+}
+
+function getCurrentProblem() {
+  const route = getRoute()
+  if (route.view !== 'detail' || !route.id) return null
+  return problems.find((item) => item.id === route.id) ?? null
+}
+
+function renderCoachingSectionHtml(question, answer) {
+  const coaching = getCoachingState(question.id)
+  const hasAnswer = Boolean(answer.trim())
+  const canRequestCoaching = hasAnswer && !coaching.loading
+  const showAnswerButton = canShowAnswerButton(coaching)
+
+  const modeNotice = isCoachingApiConfigured()
+    ? '<p class="coaching-panel__mode coaching-panel__mode--live">AI 코칭 모드로 동작합니다.</p>'
+    : '<p class="coaching-panel__mode">예시 코칭 모드로 동작합니다. (mock — UI·흐름 확인용)</p>'
+
+  const emptyPrompt = hasAnswer
+    ? ''
+    : '<p class="coaching-panel__prompt">먼저 자신의 생각을 적어 보세요.</p>'
+
+  const loadingMarkup = coaching.loading
+    ? '<p class="coaching-panel__loading" aria-live="polite">AI 코칭을 준비하고 있어요...</p>'
+    : ''
+
+  const errorMarkup = coaching.error
+    ? `<p class="coaching-panel__error" role="alert">${escapeHtml(coaching.error)}</p>`
+    : ''
+
+  let resultMarkup = ''
+  if (coaching.response) {
+    const hintMarkup = coaching.response.hint
+      ? `
+        <div class="coaching-result__section coaching-result__section--hint">
+          <span class="coaching-result__label">힌트</span>
+          <p class="coaching-result__text">${escapeHtml(coaching.response.hint)}</p>
+        </div>
+      `
+      : ''
+
+    const answerMarkup = coaching.revealedAnswer
+      ? `
+        <div class="coaching-result__section coaching-result__section--answer">
+          <span class="coaching-result__label">그래프에서 확인한 내용</span>
+          <p class="coaching-result__text coaching-result__text--answer">${escapeHtml(coaching.revealedAnswer)}</p>
+        </div>
+      `
+      : ''
+
+    resultMarkup = `
+      <div class="coaching-result" aria-live="polite">
+        <div class="coaching-result__section coaching-result__section--praise">
+          <span class="coaching-result__label">좋은 점</span>
+          <p class="coaching-result__text">${escapeHtml(coaching.response.praise)}</p>
+        </div>
+        <div class="coaching-result__section coaching-result__section--question">
+          <span class="coaching-result__label">생각해 볼 질문</span>
+          <p class="coaching-result__text">${escapeHtml(coaching.response.question)}</p>
+        </div>
+        ${hintMarkup}
+        ${answerMarkup}
+      </div>
+    `
+  }
+
+  const showAnswerBtnMarkup = showAnswerButton
+    ? `
+      <button
+        class="coaching-panel__btn coaching-panel__btn--answer"
+        id="showAnswerBtn"
+        type="button"
+      >
+        정답 보기
+      </button>
+    `
+    : ''
+
+  return `
+    <section class="coaching-panel" aria-label="AI 코칭">
+      ${modeNotice}
+      ${emptyPrompt}
+      <div class="coaching-panel__actions">
+        <button
+          class="coaching-panel__btn coaching-panel__btn--primary"
+          id="requestCoachingBtn"
+          type="button"
+          ${canRequestCoaching ? '' : 'disabled'}
+        >
+          AI 코칭 받기
+        </button>
+        ${showAnswerBtnMarkup}
+      </div>
+      ${loadingMarkup}
+      ${errorMarkup}
+      ${resultMarkup}
+    </section>
+  `
 }
 
 function buildAnswerSummaryItems() {
@@ -187,6 +343,7 @@ function renderQuestionStepHtml() {
           placeholder="답을 입력하세요"
           autocomplete="off"
         >${escapeHtml(answer)}</textarea>
+        ${renderCoachingSectionHtml(question, answer)}
       </div>
 
       <div class="question-nav">
@@ -574,6 +731,77 @@ function saveCurrentAnswer() {
   detailState.answers[question.id] = input.value
 }
 
+function updateCoachingControls() {
+  const input = document.querySelector('#currentAnswerInput')
+  const requestBtn = document.querySelector('#requestCoachingBtn')
+  const prompt = document.querySelector('.coaching-panel__prompt')
+  const question = detailState.questions[detailState.currentIndex]
+  if (!input || !requestBtn || !question) return
+
+  const hasAnswer = Boolean(input.value.trim())
+  requestBtn.disabled = !hasAnswer || getCoachingState(question.id).loading
+
+  if (prompt) {
+    prompt.hidden = hasAnswer
+  }
+}
+
+async function requestCoachingForCurrentQuestion() {
+  const question = detailState.questions[detailState.currentIndex]
+  const problem = getCurrentProblem()
+  if (!question || !problem) return
+
+  saveCurrentAnswer()
+  const studentAnswer = detailState.answers[question.id]?.trim() ?? ''
+  if (!studentAnswer) return
+
+  const coaching = getCoachingState(question.id)
+  coaching.loading = true
+  coaching.error = null
+  updateQuestionsSection()
+
+  try {
+    const response = await requestCoaching({
+      problem,
+      question,
+      studentAnswer,
+      hintLevel: coaching.hintLevel,
+    })
+
+    coaching.response = response
+    coaching.hintLevel = response.hintLevel
+    coaching.coachingStepCount += 1
+    coaching.coachedAnswer = studentAnswer
+    coaching.isAnswerComplete = isCoachingCompleteResponse(response)
+    coaching.error = null
+  } catch (error) {
+    coaching.error = error instanceof Error ? error.message : 'AI 코칭을 불러오지 못했습니다.'
+  } finally {
+    coaching.loading = false
+    updateQuestionsSection()
+  }
+}
+
+function revealAnswerForCurrentQuestion() {
+  const question = detailState.questions[detailState.currentIndex]
+  const problem = getCurrentProblem()
+  if (!question || !problem) return
+
+  const coaching = getCoachingState(question.id)
+  if (!canShowAnswerButton(coaching)) return
+
+  coaching.revealedAnswer = buildReferenceAnswer(problem, question)
+  updateQuestionsSection()
+}
+
+function resetCoachingIfAnswerChanged(questionId, answer) {
+  const coaching = getCoachingState(questionId)
+  if (!coaching.coachingStepCount && !coaching.response) return
+  if (coaching.coachedAnswer === answer) return
+
+  Object.assign(coaching, createDefaultCoachingState())
+}
+
 function updateQuestionsSection() {
   const questionsSection = document.querySelector('#questionsSection')
   if (!questionsSection) return
@@ -641,6 +869,7 @@ function startReading(problemId) {
   detailState.showFinalReview = false
   detailState.answers = {}
   detailState.finalInterpretation = ''
+  detailState.coachingByQuestion = {}
   detailState.questions = buildQuestions(problem)
 
   const startButton = document.querySelector('#startReadingBtn')
@@ -686,9 +915,20 @@ function showFinalReview() {
 function bindQuestionEvents() {
   const input = document.querySelector('#currentAnswerInput')
   if (input) {
-    input.addEventListener('input', saveCurrentAnswer)
+    input.addEventListener('input', () => {
+      saveCurrentAnswer()
+      const question = detailState.questions[detailState.currentIndex]
+      if (question) {
+        resetCoachingIfAnswerChanged(question.id, input.value)
+      }
+      updateCoachingControls()
+    })
     setupAutoResizeTextarea(input)
+    updateCoachingControls()
   }
+
+  document.querySelector('#requestCoachingBtn')?.addEventListener('click', requestCoachingForCurrentQuestion)
+  document.querySelector('#showAnswerBtn')?.addEventListener('click', revealAnswerForCurrentQuestion)
 
   const finalTextarea = document.querySelector('#finalInterpretationInput')
   if (finalTextarea) {
