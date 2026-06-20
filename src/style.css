@@ -86,6 +86,14 @@ body {
   display: none;
 }
 
+.detail-card--above-graph {
+  margin-bottom: 0.75rem;
+}
+
+.detail-card--above-graph .detail-section ~ .detail-section {
+  display: none;
+}
+
 .page-title {
   margin: 0 0 0.35rem;
   font-size: 1.35rem;
@@ -299,7 +307,7 @@ body {
 }
 
 .app-shell--final-review .graph-section {
-  margin-top: 0.75rem;
+  margin-top: 0;
 }
 
 .app-shell--final-review .app-header {
@@ -482,6 +490,81 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.coaching-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.coaching-progress__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.coaching-progress__marker {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.coaching-progress__item--completed {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.coaching-progress__item--completed .coaching-progress__marker {
+  background: var(--color-primary);
+}
+
+.coaching-progress__item--current {
+  color: var(--color-primary-dark);
+  font-weight: 700;
+}
+
+.coaching-progress__item--current .coaching-progress__marker {
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.18);
+}
+
+.coaching-progress__item--next {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.coaching-progress__item--next .coaching-progress__marker {
+  background: #94a3b8;
+}
+
+.coaching-result__subtitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.question-nav__warning {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: #fff4e5;
+  border: 1px solid #f5c26b;
+  color: #8a4b00;
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .coaching-panel__btn {
@@ -535,7 +618,7 @@ body {
   border-left: 4px solid #22c55e;
 }
 
-.coaching-result__section--question {
+.coaching-result__section--help {
   border-left: 4px solid #3b82f6;
 }
 
@@ -771,6 +854,51 @@ body {
   margin: 0.55rem 0 0;
   font-size: 0.82rem;
   color: var(--color-text-muted);
+}
+
+.final-writing__warning {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.65rem;
+  background: #fff4e5;
+  border: 1px solid #f5c26b;
+  color: #8a4b00;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.final-writing__result {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.65rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.final-writing__result--success {
+  background: #edf9f0;
+  border: 1px solid #8fd19e;
+  color: #1f6b34;
+}
+
+.final-writing__result--fail {
+  background: #fff1f0;
+  border: 1px solid #f0a8a2;
+  color: #8a2f28;
+}
+
+.final-writing__result--loading {
+  background: #f3f6fb;
+  border: 1px solid #c8d5ea;
+  color: #3d5278;
+}
+
+.question-nav--final-print {
+  margin-top: 0.55rem;
+}
+
+.question-nav--final-print .question-nav__btn {
+  width: 100%;
 }
 
 .question-nav--final {

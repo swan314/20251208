@@ -42,6 +42,20 @@ export function withAndParticle(label) {
 }
 
 /**
+ * @param {number} value
+ */
+export function withRoParticleForNumber(value) {
+  const text = Number.isInteger(value) ? String(value) : String(value)
+  const lastDigit = Math.abs(Number(value)) % 10
+
+  if ([0, 1, 3, 6, 7, 8].includes(lastDigit)) {
+    return `${text}으로`
+  }
+
+  return `${text}로`
+}
+
+/**
  * @param {string} label
  */
 export function formatSubjectPossessive(label) {

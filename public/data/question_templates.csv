@@ -18,6 +18,7 @@ repeat_cycle,비슷한 변화는 몇 [xUnit]마다 반복되나요?
 repeat_pattern,어떤 변화가 반복되고 있나요?
 repeat_reason,왜 이런 변화가 반복된다고 볼 수 있을까요?
 stop_section,[yLabel]가 0인 구간은 어디인가요?
-summary,그래프를 보고 관찰한 내용을 설명해 보세요.
+observation_summary,그래프를 보고 관찰한 내용을 설명해 보세요.
+section_interpretation,[sectionRange] 그래프의 변화를 설명해보세요.
 trend_direction,전체적으로 [yLabel]는 어떻게 변하고 있나요?
 value_compare,같은 [xLabel]에서 두 대상의 [yLabel]를 비교해 보세요.

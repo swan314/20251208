@@ -1,12 +1,13 @@
 import { parseSeriesFromPoints } from './graph.js'
+import { buildSectionRangePhrase } from './questions.js'
 import {
   parseCoachingResponse,
 } from '../shared/coachingPrompt.mjs'
 import {
-  getCoachingStep,
+  getCoachingHelp,
   getCoachingSteps,
 } from '../shared/coachingSteps.mjs'
-import { isGiveUpAnswer, pickMissingSeriesPraise, pickPraiseForQuality, pickPointValueMultiSeriesCompletePraise, pickPointValueXOnlyPraise } from '../shared/coachingPraise.mjs'
+import { isGiveUpAnswer } from '../shared/coachingPraise.mjs'
 import {
   formatSubjectPossessive,
   joinWithAnd,
@@ -42,7 +43,18 @@ export function initCoachingRules(rows) {
 /**
  * @param {{
  *   problem: Record<string, string>,
- *   question: { text: string, ruleName: string, questionSet: string },
+ *   question: {
+ *     text: string,
+ *     ruleName: string,
+ *     questionSet: string,
+ *     section?: {
+ *       xStart: number,
+ *       xEnd: number,
+ *       yStart: number,
+ *       yEnd: number,
+ *       isMultiSeries?: boolean,
+ *     },
+ *   },
  *   studentAnswer: string,
  *   hintLevel: number,
  * }} params
@@ -60,6 +72,13 @@ export function buildCoachingContext({ problem, question, studentAnswer, hintLev
     ?? pickRepresentativeX(primaryPoints.map((point) => point.x))
   const xLabel = problem.xLabel?.trim() ?? ''
   const xText = focusX !== null ? formatXValue(focusX, xUnit) : xLabel
+  const section = question.section ?? null
+  const sectionStartText =
+    section !== null ? formatXValue(section.xStart, xUnit) : ''
+  const sectionEndText =
+    section !== null ? formatXValue(section.xEnd, xUnit) : ''
+  const sectionRangeText =
+    section !== null ? buildSectionRangePhrase(problem, section.xStart, section.xEnd) : ''
 
   return {
     title: problem.title?.trim() ?? '',
@@ -77,6 +96,10 @@ export function buildCoachingContext({ problem, question, studentAnswer, hintLev
     xUnit,
     yUnit: problem.yUnit?.trim() ?? '',
     xText,
+    section,
+    sectionStartText,
+    sectionEndText,
+    sectionRangeText,
   }
 }
 
@@ -276,7 +299,12 @@ function isAnswerCloseToText(studentAnswer, expectedTexts) {
  * @property {string} referenceAnswer
  * @property {string} level1Question
  * @property {string} level2Question
- * @property {string} level3Hint
+ * @property {string} [sectionStartText]
+ * @property {string} [sectionEndText]
+ * @property {string} [sectionRangeText]
+ * @property {string} [yStartText]
+ * @property {string} [yEndText]
+ * @property {'constant' | 'increase' | 'decrease'} [sectionDirection]
  */
 
 function getSeriesLabels(meta) {
@@ -346,16 +374,385 @@ function hasPartialSeriesValues(answer, target, meta) {
  * @returns {CoachingTarget}
  */
 function finalizeCoachingTarget(target, ruleName, meta, xText) {
-  const steps = getCoachingSteps(ruleName, {
+  const labels = {
     xLabel: meta.xLabel,
     yLabel: meta.yLabel,
     xText: xText ?? (target.x !== undefined ? formatXValue(target.x, meta.xUnit) : meta.xLabel),
     seriesLabels: getSeriesLabels(meta),
-  })
-  target.level1Question = steps[1].question
-  target.level2Question = steps[2].question
-  target.level3Hint = steps[3].hint || steps[3].question
+    sectionStartText: target.sectionStartText ?? '',
+    sectionEndText: target.sectionEndText ?? '',
+    sectionRangeText: target.sectionRangeText ?? '',
+    yStartText: target.yStartText ?? '',
+    yEndText: target.yEndText ?? '',
+    sectionDirection: target.sectionDirection,
+    isMultiSeries: getSeriesLabels(meta).length >= 2,
+  }
+  const steps = getCoachingSteps(ruleName, labels)
+  target.level1Question = steps[1].help
+  target.level2Question = steps[2].help
+  target.level3Hint = steps[3].help
   return target
+}
+
+function getSectionDirection(yStart, yEnd) {
+  if (approxEqual(yStart, yEnd)) return 'constant'
+  if (yEnd > yStart) return 'increase'
+  return 'decrease'
+}
+
+function isDistanceSectionInterpretation(yLabel) {
+  return yLabel?.trim() === '거리'
+}
+
+function isSpeedSectionInterpretation(yLabel) {
+  return yLabel?.trim() === '속력'
+}
+
+function isHeightSectionInterpretation(yLabel) {
+  return yLabel?.trim() === '높이'
+}
+
+const MOVEMENT_DIRECTION_KEYWORDS = ['이동', '움직', '나아', '다녀', '걸']
+
+function getSectionDirectionDetectionKeywords(yLabel, direction) {
+  const constantKeywords = [
+    '변하지',
+    '유지',
+    '같',
+    '그대로',
+    '일정',
+    '변화가 없',
+    '변화 없',
+    '이동하지',
+    '멈',
+    '정지',
+    '쉬',
+  ]
+  const genericIncreaseKeywords = ['증가', '올라', '올랐', '상승', '커', '커졌', '늘', '늘었']
+  const genericDecreaseKeywords = ['감소', '내려', '내렸', '하강', '작아', '작아졌', '줄', '줄었']
+  const speedIncreaseKeywords = ['증가', '빨라', '빨라졌', '빨라지', '늘어남', '늘어났', '늘었', '늘']
+  const speedDecreaseKeywords = ['감소', '느려', '느려졌', '느려지', '줄어', '줄어들', '줄었', '줄']
+  const heightIncreaseKeywords = ['높아', '높아졌', '올라', '올라갔', '상승', '증가', '커', '커졌']
+  const heightDecreaseKeywords = ['낮아', '낮아졌', '내려', '내려갔', '하강', '감소', '작아', '작아졌']
+
+  if (direction === 'constant') {
+    return constantKeywords
+  }
+
+  if (isDistanceSectionInterpretation(yLabel)) {
+    if (direction === 'increase') {
+      return [...MOVEMENT_DIRECTION_KEYWORDS, ...genericIncreaseKeywords, '높아', '높아졌', '낮아', '낮아졌']
+    }
+
+    return [...genericDecreaseKeywords, '낮아', '낮아졌']
+  }
+
+  if (isSpeedSectionInterpretation(yLabel)) {
+    return direction === 'increase' ? speedIncreaseKeywords : speedDecreaseKeywords
+  }
+
+  if (isHeightSectionInterpretation(yLabel)) {
+    return direction === 'increase' ? heightIncreaseKeywords : heightDecreaseKeywords
+  }
+
+  if (direction === 'increase') {
+    return [...genericIncreaseKeywords, '높아', '높아졌']
+  }
+
+  return [...genericDecreaseKeywords, '낮아', '낮아졌']
+}
+
+function usesForbiddenMovementWording(yLabel, answer, direction = 'increase') {
+  if (!isSpeedSectionInterpretation(yLabel) && !isHeightSectionInterpretation(yLabel)) {
+    return false
+  }
+
+  const normalized = normalizeAnswer(answer)
+
+  if (normalized.includes('이동하지')) {
+    return false
+  }
+
+  if (
+    direction === 'constant'
+    && (normalized.includes('변화가없') || hasSectionDirectionKeyword(answer, ['변하지', '유지', '같', '그대로']))
+  ) {
+    return false
+  }
+
+  if (normalized.includes('이동')) {
+    return true
+  }
+
+  return hasSectionDirectionKeyword(
+    answer,
+    MOVEMENT_DIRECTION_KEYWORDS.filter((keyword) => keyword !== '이동'),
+  )
+}
+
+function hasSectionDirectionMismatch(answer, yLabel, direction) {
+  return hasConflictingSectionDirection(answer, yLabel, direction)
+}
+
+function buildSectionDirectionMismatchCoaching(yLabel, sectionDirection, yStartText, yEndText) {
+  const ySubject = withSubjectParticle(yLabel)
+
+  if (isHeightSectionInterpretation(yLabel)) {
+    if (sectionDirection === 'increase') {
+      return `${yStartText}에서 ${yEndText}로 ${ySubject} 커졌습니다. 낮아졌다·하강했다보다 높아졌다, 올라갔다, 상승했다처럼 써 보세요.`
+    }
+
+    if (sectionDirection === 'decrease') {
+      return `${yStartText}에서 ${yEndText}로 ${ySubject} 작아졌습니다. 높아졌다·상승했다보다 낮아졌다, 내려갔다, 하강했다처럼 써 보세요.`
+    }
+  }
+
+  if (sectionDirection === 'increase') {
+    return `${yStartText}에서 ${yEndText}로 ${ySubject} 커졌습니다. 증가했다, 올라갔다, 상승했다, 커졌다처럼 써 보세요.`
+  }
+
+  if (sectionDirection === 'decrease') {
+    return `${yStartText}에서 ${yEndText}로 ${ySubject} 작아졌습니다. 감소했다, 내려갔다, 하강했다, 작아졌다처럼 써 보세요.`
+  }
+
+  return `${yStartText}부터 ${yEndText}까지 ${ySubject} 변하지 않았습니다. 변화가 없다, 이동하지 않았다처럼 써 보세요.`
+}
+
+function getSectionDirectionKeywords(yLabel, direction) {
+  return getSectionDirectionDetectionKeywords(yLabel, direction)
+}
+
+function hasSectionDirectionKeyword(answer, keywords) {
+  const normalized = normalizeAnswer(answer)
+  return keywords.some((keyword) => normalized.includes(normalizeAnswer(keyword)))
+}
+
+function hasSectionDirectionSignal(answer, yLabel, direction) {
+  return hasSectionDirectionKeyword(answer, getSectionDirectionDetectionKeywords(yLabel, direction))
+}
+
+function hasConflictingSectionDirection(answer, yLabel, direction) {
+  if (direction === 'constant') {
+    return false
+  }
+
+  const oppositeDirection = direction === 'increase' ? 'decrease' : 'increase'
+  const oppositeKeywords = getSectionDirectionDetectionKeywords(yLabel, oppositeDirection)
+  const expectedKeywords = getSectionDirectionDetectionKeywords(yLabel, direction)
+
+  return (
+    hasSectionDirectionKeyword(answer, oppositeKeywords)
+    && !hasSectionDirectionKeyword(answer, expectedKeywords)
+  )
+}
+
+/**
+ * @param {number[]} studentNumbers
+ * @param {CoachingTarget} target
+ */
+function assessSectionEndpointValues(studentNumbers, target) {
+  const yStart = target.expectedNumbers?.[2]
+  const yEnd = target.expectedNumbers?.[3] ?? target.sectionEndY
+
+  const endpointNumbers = [yStart, yEnd].filter((value) => value !== undefined && value !== null)
+  const matchedEndpointCount = countMatchedExpectedNumbers(studentNumbers, endpointNumbers)
+  const hasYStart =
+    yStart !== undefined
+    && yStart !== null
+    && studentNumbers.some((value) => valueMatchesExpectedNumber(value, yStart))
+  const hasYEnd =
+    yEnd !== undefined
+    && yEnd !== null
+    && studentNumbers.some((value) => valueMatchesExpectedNumber(value, yEnd))
+
+  return {
+    hasYStart,
+    hasYEnd,
+    matchedEndpointCount,
+    bothEndpoints: hasYStart && hasYEnd,
+    anyEndpoint: hasYStart || hasYEnd,
+  }
+}
+
+function hasSectionRangeContext(answer, target) {
+  return (
+    (target.sectionStartText
+      && normalizeAnswer(answer).includes(normalizeAnswer(target.sectionStartText)))
+    || (target.sectionEndText
+      && normalizeAnswer(answer).includes(normalizeAnswer(target.sectionEndText)))
+    || (target.sectionRangeText
+      && normalizeAnswer(answer).includes(normalizeAnswer(target.sectionRangeText)))
+  )
+}
+
+function getSectionFocusedCoachingType(answer, target, quality, meta) {
+  if (quality === 'complete' || quality === 'wrong') {
+    return null
+  }
+
+  const studentNumbers = extractNumbers(answer)
+  if (!studentNumbers.length || !hasStrictSectionYEndpoints(answer, target)) {
+    return null
+  }
+
+  const direction = target.sectionDirection ?? 'increase'
+
+  if (
+    hasSectionDirectionMismatch(answer, meta.yLabel, direction)
+    || usesForbiddenMovementWording(meta.yLabel, answer, direction)
+    || !hasSectionDirectionSignal(answer, meta.yLabel, direction)
+  ) {
+    return 'expression'
+  }
+
+  if (!hasRequiredQuantityContext(answer, meta)) {
+    return 'meaning'
+  }
+
+  return null
+}
+
+function buildSectionMeaningCoaching(meta, labels) {
+  const { yLabel, yStartText = '', yEndText = '' } = labels
+  const yUnit = meta.yUnit?.trim() ?? ''
+  const unitHint = yUnit ? ` 또는 단위(${yUnit})` : ''
+
+  if (yStartText && yEndText) {
+    return `${yStartText}과 ${yEndText}의 숫자가 의미하는 것은 ${yLabel}입니다. ${yLabel}${unitHint}를 넣어 문장으로 써 보세요.`
+  }
+
+  return `그래프에서 읽은 숫자가 의미하는 것은 ${yLabel}입니다. ${yLabel}${unitHint}를 넣어 문장으로 써 보세요.`
+}
+
+function buildSectionExpressionCoaching(meta, answer, labels) {
+  const { yLabel, sectionDirection = 'increase', yStartText = '', yEndText = '' } = labels
+
+  if (hasSectionDirectionMismatch(answer, yLabel, sectionDirection) && yStartText && yEndText) {
+    return buildSectionDirectionMismatchCoaching(yLabel, sectionDirection, yStartText, yEndText)
+  }
+
+  if (isHeightSectionInterpretation(yLabel)) {
+    if (usesForbiddenMovementWording(yLabel, answer, sectionDirection)) {
+      return `${yLabel}는 '이동'이 아니라 높이 변화를 나타내는 말로 써 보세요.\n높아졌다, 올라갔다, 상승했다 / 낮아졌다, 내려갔다, 하강했다처럼 표현해 보세요.`
+    }
+
+    if (!hasSectionDirectionSignal(answer, yLabel, sectionDirection)) {
+      if (sectionDirection === 'increase') {
+        return `${yLabel}에 맞는 표현을 생각해 보세요.\n높아졌다, 올라갔다, 상승했다처럼 써 보세요.`
+      }
+
+      if (sectionDirection === 'decrease') {
+        return `${yLabel}에 맞는 표현을 생각해 보세요.\n낮아졌다, 내려갔다, 하강했다처럼 써 보세요.`
+      }
+
+      if (sectionDirection === 'constant') {
+        return `${yLabel}에 맞는 표현을 생각해 보세요.\n변화가 없다, 이동하지 않았다처럼 써 보세요.`
+      }
+    }
+  }
+
+  if (isSpeedSectionInterpretation(yLabel)) {
+    if (usesForbiddenMovementWording(yLabel, answer, sectionDirection)) {
+      return `${yLabel}는 '이동'이 아니라 속력 변화를 나타내는 말로 써 보세요.\n증가했다, 빨라졌다, 늘어났다 / 감소했다, 느려졌다, 줄어들었다처럼 표현해 보세요.`
+    }
+
+    if (!hasSectionDirectionSignal(answer, yLabel, sectionDirection)) {
+      if (sectionDirection === 'increase') {
+        return `${yLabel}에 맞는 표현을 생각해 보세요.\n증가했다, 빨라졌다, 늘어났다처럼 써 보세요.`
+      }
+
+      return `${yLabel}에 맞는 표현을 생각해 보세요.\n감소했다, 느려졌다, 줄어들었다처럼 써 보세요.`
+    }
+  }
+
+  if (isDistanceSectionInterpretation(yLabel) && !hasSectionDirectionSignal(answer, yLabel, sectionDirection)) {
+    return `${yLabel} 변화를 나타낼 때 '이동'처럼 써 보세요.\n${labels.yStartText}에서 ${labels.yEndText}로 어떻게 변했는지 문장으로 써 보세요.`
+  }
+
+  return getCoachingHelp('section_interpretation', 3, labels)
+}
+
+function buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction) {
+  const yStartText = formatYValue(yStart, yUnit)
+  const yEndText = formatYValue(yEnd, yUnit)
+
+  if (direction === 'constant') {
+    return `${withTopicParticle(yLabel)} ${yStartText}로 변하지 않았습니다`
+  }
+
+  if (isDistanceSectionInterpretation(yLabel)) {
+    return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 이동했습니다`
+  }
+
+  if (isSpeedSectionInterpretation(yLabel)) {
+    if (direction === 'increase') {
+      return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 증가했습니다`
+    }
+
+    return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 감소했습니다`
+  }
+
+  if (isHeightSectionInterpretation(yLabel)) {
+    if (direction === 'increase') {
+      return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 높아졌습니다`
+    }
+
+    return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 낮아졌습니다`
+  }
+
+  if (direction === 'increase') {
+    return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 증가했습니다`
+  }
+
+  return `${withTopicParticle(yLabel)} ${yStartText}에서 ${yEndText}로 감소했습니다`
+}
+
+function buildSingleSeriesSectionReferenceAnswer(
+  xStart,
+  xEnd,
+  yStart,
+  yEnd,
+  yLabel,
+  xUnit,
+  yUnit,
+  rangePhrase,
+) {
+  const startText = formatXValue(xStart, xUnit)
+  const endText = formatXValue(xEnd, xUnit)
+  const direction = getSectionDirection(yStart, yEnd)
+
+  if (direction === 'constant') {
+    return wrapGraphConfirmation(
+      `${startText}부터 ${endText}까지 ${buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction)}.`,
+    )
+  }
+
+  return wrapGraphConfirmation(
+    `${startText}부터 ${endText}까지 ${buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction)}.`,
+  )
+}
+
+function buildMultiSeriesSectionReferenceAnswer(meta, section, problem, xUnit, yUnit, yLabel) {
+  const startText = formatXValue(section.xStart, xUnit)
+  const endText = formatXValue(section.xEnd, xUnit)
+  const parts = meta.series
+    .filter((entry) => entry.label && entry.points.length)
+    .map((entry) => {
+      const yStart = findYAtX(entry.points, section.xStart)
+      const yEnd = findYAtX(entry.points, section.xEnd)
+      if (yStart === null || yEnd === null) return null
+
+      const direction = getSectionDirection(yStart, yEnd)
+      const changePhrase = buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction)
+      return `${formatSubjectPossessive(entry.label)} ${changePhrase}`
+    })
+    .filter(Boolean)
+
+  if (!parts.length) {
+    return `${startText}부터 ${endText}까지 두 사람의 ${withObjectParticle(yLabel)} 각각 비교해 보세요.`
+  }
+
+  return wrapGraphConfirmation(`${startText}부터 ${endText}까지 ${joinWithAnd(parts)}.`)
 }
 
 /**
@@ -380,6 +777,47 @@ function resolveCoachingTarget(context, problem) {
       ruleName,
       meta,
       xLabel,
+    )
+  }
+
+  if (ruleName === 'section_interpretation' && context.section) {
+    const section = context.section
+    const rangePhrase = buildSectionRangePhrase(problem, section.xStart, section.xEnd)
+    const sectionStartText = formatXValue(section.xStart, xUnit)
+    const sectionEndText = formatXValue(section.xEnd, xUnit)
+    const isMultiSeries = Boolean(section.isMultiSeries) || isMultiSeriesGraph(meta)
+    const referenceAnswer = isMultiSeries
+      ? buildMultiSeriesSectionReferenceAnswer(meta, section, problem, xUnit, yUnit, yLabel)
+      : buildSingleSeriesSectionReferenceAnswer(
+          section.xStart,
+          section.xEnd,
+          section.yStart,
+          section.yEnd,
+          yLabel,
+          xUnit,
+          yUnit,
+          rangePhrase,
+        )
+    const primaryDirection = getSectionDirection(section.yStart, section.yEnd)
+
+    return finalizeCoachingTarget(
+      {
+        x: section.xStart,
+        y: section.yStart,
+        expectedNumbers: [section.xStart, section.xEnd, section.yStart, section.yEnd],
+        expectedTexts: getSectionDirectionKeywords(yLabel, primaryDirection),
+        referenceAnswer,
+        sectionStartText,
+        sectionEndText,
+        sectionRangeText: rangePhrase,
+        sectionEndY: section.yEnd,
+        yStartText: formatYValue(section.yStart, yUnit),
+        yEndText: formatYValue(section.yEnd, yUnit),
+        sectionDirection: primaryDirection,
+      },
+      ruleName,
+      meta,
+      sectionStartText,
     )
   }
 
@@ -537,6 +975,8 @@ function resolveCoachingTarget(context, problem) {
 
     if (firstSeries?.points.length && secondSeries?.points.length) {
       for (const point of firstSeries.points) {
+        if (approxEqual(point.x, 0) && approxEqual(point.y, 0)) continue
+
         const y2 = findYAtX(secondSeries.points, point.x)
         if (y2 !== null && approxEqual(point.y, y2)) {
           intersection = { x: point.x, y: point.y }
@@ -660,6 +1100,103 @@ function hasYUnitInAnswer(answer, yUnit) {
   return normalizeAnswer(answer).includes(normalizeAnswer(yUnit))
 }
 
+function extractNumberUnitTokens(answer) {
+  const normalized = normalizeAnswer(answer)
+  const tokens = []
+  const regex = /\d+\.?\d*(km\/m|km|cm|ppm|℃|m\/s|w|도|m)/gi
+  let match = regex.exec(normalized)
+
+  while (match) {
+    const suffix = match[1].toLowerCase()
+    let unit = suffix
+
+    if (suffix === '도') {
+      unit = '℃'
+    } else if (suffix === 'w') {
+      unit = 'W'
+    }
+
+    tokens.push({ text: match[0], unit })
+    match = regex.exec(normalized)
+  }
+
+  return tokens
+}
+
+function unitMatchesExpected(tokenUnit, expectedYUnit) {
+  if (!expectedYUnit) return false
+
+  if (expectedYUnit === '℃') {
+    return tokenUnit === '℃'
+  }
+
+  return tokenUnit.toLowerCase() === expectedYUnit.toLowerCase()
+}
+
+function hasWordOnlyCorrectUnit(answer, yUnit) {
+  if (!yUnit) return false
+
+  const normalized = normalizeAnswer(answer)
+
+  switch (yUnit) {
+    case 'km':
+      return normalized.includes('킬로')
+    case 'W':
+      return normalized.includes('와트')
+    case 'cm':
+      return normalized.includes('센티')
+    case 'm':
+      return normalized.includes('미터') && !normalized.includes('킬로')
+    default:
+      return normalized.includes(normalizeAnswer(yUnit))
+  }
+}
+
+function hasCorrectYUnitInAnswer(answer, yUnit) {
+  if (!yUnit) return false
+
+  const tokens = extractNumberUnitTokens(answer)
+
+  if (tokens.length > 0) {
+    return tokens.every((token) => unitMatchesExpected(token.unit, yUnit))
+  }
+
+  return hasWordOnlyCorrectUnit(answer, yUnit)
+}
+
+function hasInvalidQuantityUnits(answer, yUnit) {
+  if (!yUnit || !answer.trim()) return false
+
+  const tokens = extractNumberUnitTokens(answer)
+  if (tokens.length === 0) return false
+
+  return tokens.some((token) => !unitMatchesExpected(token.unit, yUnit))
+}
+
+function hasExplicitWrongYUnit(answer, yUnit) {
+  return hasInvalidQuantityUnits(answer, yUnit)
+}
+
+function hasRequiredQuantityContext(answer, meta) {
+  return includesLabel(answer, meta.yLabel) || hasCorrectYUnitInAnswer(answer, meta.yUnit)
+}
+
+function capSectionQualityWithoutQuantityContext(quality, answer, meta) {
+  if (quality === 'wrong' || quality === 'partial') {
+    return quality
+  }
+
+  if (hasExplicitWrongYUnit(answer, meta.yUnit)) {
+    return includesLabel(answer, meta.yLabel) ? 'partial' : 'wrong'
+  }
+
+  if (!hasRequiredQuantityContext(answer, meta)) {
+    return 'partial'
+  }
+
+  return quality
+}
+
 function hasXContextInAnswer(answer, x, xUnit, xLabel) {
   if (x !== undefined && xUnit) {
     const xText = formatXValue(x, xUnit)
@@ -688,13 +1225,101 @@ function isFullSentenceAnswer(answer, yLabel, yUnit) {
 
 const VALUE_MATCH_TOLERANCE = 0.2
 
+function valueMatchesExpectedNumber(value, expected) {
+  return Math.abs(value - expected) <= VALUE_MATCH_TOLERANCE
+}
+
+function valueMatchesSectionExpectedNumber(value, expected) {
+  return approxEqual(value, expected)
+}
+
+function getSectionYEndpointNumbers(target) {
+  const yStart = target.expectedNumbers?.[2]
+  const yEnd = target.expectedNumbers?.[3] ?? target.sectionEndY
+
+  return [yStart, yEnd].filter((value) => value !== undefined && value !== null)
+}
+
+/**
+ * @param {number[]} studentNumbers
+ * @param {CoachingTarget} target
+ */
+function assessStrictSectionYEndpoints(studentNumbers, target) {
+  const [yStart, yEnd] = getSectionYEndpointNumbers(target)
+  const hasYStart =
+    yStart !== undefined
+    && studentNumbers.some((value) => valueMatchesSectionExpectedNumber(value, yStart))
+  const hasYEnd =
+    yEnd !== undefined
+    && studentNumbers.some((value) => valueMatchesSectionExpectedNumber(value, yEnd))
+
+  return {
+    hasYStart,
+    hasYEnd,
+    bothEndpoints: hasYStart && hasYEnd,
+    anyEndpoint: hasYStart || hasYEnd,
+  }
+}
+
+function hasStrictSectionYEndpoints(answer, target) {
+  const studentNumbers = extractNumbers(answer)
+  if (!studentNumbers.length) {
+    return false
+  }
+
+  return (
+    assessStrictSectionYEndpoints(studentNumbers, target).bothEndpoints
+    && !hasStrictInvalidSectionNumbers(answer, target)
+  )
+}
+
+function hasStrictInvalidSectionNumbers(answer, target) {
+  const studentNumbers = extractNumbers(answer)
+  if (!studentNumbers.length) {
+    return false
+  }
+
+  const allowedValues = getSectionExpectedValues(target)
+  return studentNumbers.some(
+    (value) =>
+      !allowedValues.some((expected) => valueMatchesSectionExpectedNumber(value, expected)),
+  )
+}
+
+function getSectionExpectedValues(target) {
+  const xStart = target.expectedNumbers?.[0]
+  const xEnd = target.expectedNumbers?.[1]
+  const yStart = target.expectedNumbers?.[2]
+  const yEnd = target.expectedNumbers?.[3] ?? target.sectionEndY
+
+  return [xStart, xEnd, yStart, yEnd].filter((value) => value !== undefined && value !== null)
+}
+
+function isValueAllowedInSectionAnswer(value, target) {
+  return getSectionExpectedValues(target).some((expected) => valueMatchesExpectedNumber(value, expected))
+}
+
+function hasUnexpectedSectionNumbers(answer, target) {
+  const studentNumbers = extractNumbers(answer)
+  if (!studentNumbers.length) {
+    return false
+  }
+
+  return studentNumbers.some((value) => !isValueAllowedInSectionAnswer(value, target))
+}
+
+function hasExactSectionEndpointValues(answer, target) {
+  return assessSectionEndpointValues(extractNumbers(answer), target).bothEndpoints
+    && !hasUnexpectedSectionNumbers(answer, target)
+}
+
 /**
  * @param {number[]} studentNumbers
  * @param {number[]} expectedNumbers
  */
 function countMatchedExpectedNumbers(studentNumbers, expectedNumbers) {
   return expectedNumbers.filter((expected) =>
-    studentNumbers.some((value) => Math.abs(value - expected) <= VALUE_MATCH_TOLERANCE),
+    studentNumbers.some((value) => valueMatchesExpectedNumber(value, expected)),
   ).length
 }
 
@@ -818,6 +1443,13 @@ function resolveCoachingStepLevel(quality, ruleName, nextLevel, answer, target, 
     return Math.max(nextLevel, 2)
   }
 
+  if (
+    ruleName === 'section_interpretation'
+    && getSectionFocusedCoachingType(answer, target, quality, meta)
+  ) {
+    return 3
+  }
+
   return nextLevel
 }
 
@@ -828,15 +1460,10 @@ function resolveCoachingStepLevel(quality, ruleName, nextLevel, answer, target, 
  */
 function buildMissingSeriesCoaching(seriesStatus, meta, xText) {
   const missingEntry = seriesStatus.missing[0]
-  const foundEntry = seriesStatus.found[0]
 
-  if (!missingEntry || !foundEntry) return null
+  if (!missingEntry) return null
 
-  return {
-    praise: pickMissingSeriesPraise(foundEntry.label, missingEntry.label, meta.yLabel),
-    question: `${formatSubjectPossessive(missingEntry.label)} ${withTopicParticle(meta.yLabel)} 얼마인가요?`,
-    hint: `${xText}에 해당하는 ${formatSubjectPossessive(missingEntry.label)} ${withObjectParticle(meta.yLabel)} 그래프에서 확인해 보세요.`,
-  }
+  return `${xText}에 해당하는 ${formatSubjectPossessive(missingEntry.label)} ${withTopicParticle(meta.yLabel)} 얼마인가요?`
 }
 
 /**
@@ -862,67 +1489,135 @@ function buildCoachingResponseFromQuality(
   const labels = getStepLabels(meta, target, context)
   const xText = labels.xText
 
-  if (quality === 'complete') {
-    const valuesAtX = target.x !== undefined ? getLabeledSeriesValuesAtX(meta, target.x) : []
-    const timePhrase = buildTimePhraseForAnswer(xText, context.question)
-
-    if (ruleName === 'point_value' && valuesAtX.length >= 2) {
-      return {
-        praise: pickPointValueMultiSeriesCompletePraise(
-          timePhrase,
-          valuesAtX.map((entry) => entry.label),
-          meta.yLabel,
-        ),
-        question: '이 내용을 바탕으로 그래프의 변화도 함께 설명해 볼 수 있을까요?',
-        hint: '',
-        hintLevel: stepLevel,
-        showAnswer: false,
-        isComplete: true,
-      }
-    }
-
+  if (quality === 'complete' || (ruleName === 'section_interpretation' && quality === 'close')) {
     return {
-      praise: pickPraiseForQuality('complete', { studentAnswer, meta, target }),
-      question: '그래프에서 정확하게 값을 읽었습니다.',
-      hint: '',
+      help: '잘 작성했습니다. 다음 질문으로 이동해도 좋습니다.',
       hintLevel: stepLevel,
       showAnswer: false,
       isComplete: true,
     }
   }
 
-  const step = getCoachingStep(ruleName, stepLevel, labels)
-  let praise = pickPraiseForQuality(quality, { studentAnswer, meta, target })
-  let question = step.question
-  let hint = step.hint
+  let help = getCoachingHelp(ruleName, stepLevel, labels)
+
+  const focusedCoachingType =
+    ruleName === 'section_interpretation'
+      ? getSectionFocusedCoachingType(studentAnswer, target, quality, meta)
+      : null
+
+  if (focusedCoachingType === 'expression') {
+    help = buildSectionExpressionCoaching(meta, studentAnswer, labels)
+  } else if (focusedCoachingType === 'meaning') {
+    help = buildSectionMeaningCoaching(meta, labels)
+  }
 
   if (ruleName === 'point_value' && isMultiSeriesGraph(meta)) {
     const seriesStatus = getSeriesValueMatchStatus(studentAnswer, target, meta)
-    const missingSeriesCoaching = buildMissingSeriesCoaching(seriesStatus, meta, xText)
+    const missingSeriesHelp = buildMissingSeriesCoaching(seriesStatus, meta, xText)
 
     if (
-      missingSeriesCoaching
+      missingSeriesHelp
       && (quality === 'partial' || quality === 'close')
       && seriesStatus.found.length >= 1
       && seriesStatus.missing.length >= 1
     ) {
-      praise = missingSeriesCoaching.praise
-      question = missingSeriesCoaching.question
-      hint = missingSeriesCoaching.hint
-    } else if (quality === 'partial' && isPointValueXOnlyPartial(studentAnswer, target, meta)) {
-      praise = pickPointValueXOnlyPraise(xText)
+      help = missingSeriesHelp
     }
-  } else if (ruleName === 'point_value' && quality === 'partial' && isPointValueXOnlyPartial(studentAnswer, target, meta)) {
-    praise = pickPointValueXOnlyPraise(xText)
   }
 
   return {
-    praise,
-    question,
-    hint,
+    help,
     hintLevel: stepLevel,
     showAnswer: false,
   }
+}
+
+/**
+ * @param {string} answer
+ * @param {CoachingTarget} target
+ * @param {ReturnType<typeof getProblemMeta>} meta
+ */
+function classifySectionInterpretationQuality(answer, target, meta) {
+  const direction = target.sectionDirection ?? 'increase'
+  const studentNumbers = extractNumbers(answer)
+  const endpointInfo = assessStrictSectionYEndpoints(studentNumbers, target)
+  const mentionsYLabel = includesLabel(answer, meta.yLabel)
+  const hasRangeContext = hasSectionRangeContext(answer, target)
+  const hasDirection = hasSectionDirectionSignal(answer, meta.yLabel, direction)
+  const yEndpointsCorrect = hasStrictSectionYEndpoints(answer, target)
+  const claimsNumericValues = studentNumbers.length > 0
+  const directionMismatch = hasSectionDirectionMismatch(answer, meta.yLabel, direction)
+  const hasInvalidNumbers = claimsNumericValues && hasStrictInvalidSectionNumbers(answer, target)
+
+  if (hasInvalidNumbers) {
+    return 'wrong'
+  }
+
+  if (claimsNumericValues && !yEndpointsCorrect) {
+    return endpointInfo.anyEndpoint || hasRangeContext ? 'partial' : 'wrong'
+  }
+
+  if (directionMismatch) {
+    return yEndpointsCorrect ? 'partial' : 'partial'
+  }
+
+  if (usesForbiddenMovementWording(meta.yLabel, answer, direction) && !yEndpointsCorrect) {
+    return 'wrong'
+  }
+
+  if (yEndpointsCorrect) {
+    if (hasExplicitWrongYUnit(answer, meta.yUnit) && !mentionsYLabel) {
+      return 'wrong'
+    }
+
+    if (!hasRequiredQuantityContext(answer, meta)) {
+      return 'partial'
+    }
+
+    if (usesForbiddenMovementWording(meta.yLabel, answer, direction)) {
+      return 'partial'
+    }
+
+    if (hasDirection) {
+      return 'complete'
+    }
+
+    return 'partial'
+  }
+
+  if (direction === 'constant') {
+    const flatValue = target.expectedNumbers?.[2] ?? target.sectionEndY
+    const mentionsFlatValue =
+      flatValue !== undefined
+      && flatValue !== null
+      && studentNumbers.some((value) => valueMatchesSectionExpectedNumber(value, flatValue))
+
+    if (hasDirection && (mentionsFlatValue || hasRangeContext || mentionsYLabel)) {
+      return 'complete'
+    }
+
+    if (hasDirection || mentionsFlatValue || hasRangeContext) {
+      return 'close'
+    }
+
+    if (mentionsYLabel || mentionsFlatValue) {
+      return 'partial'
+    }
+  }
+
+  if (
+    hasDirection
+    && mentionsYLabel
+    && !claimsNumericValues
+  ) {
+    return 'close'
+  }
+
+  if (endpointInfo.anyEndpoint || hasDirection || mentionsYLabel || hasRangeContext) {
+    return 'partial'
+  }
+
+  return 'wrong'
 }
 
 /**
@@ -951,6 +1646,10 @@ function classifyAnswerQuality(context, target, meta) {
     if (answer.length >= 20 && /(입니다|이에요|예요|다\.|요\.)/.test(answer)) return 'complete'
     if (answer.length >= 12) return 'close'
     return 'partial'
+  }
+
+  if (ruleName === 'section_interpretation') {
+    return classifySectionInterpretationQuality(answer, target, meta)
   }
 
   if (ruleName === 'trend_direction' || ruleName === 'trend_fact') {
@@ -1015,6 +1714,13 @@ function getStepLabels(meta, target, context) {
     yLabel: meta.yLabel,
     xText,
     seriesLabels: getSeriesLabels(meta),
+    sectionStartText: target.sectionStartText ?? context?.sectionStartText ?? '',
+    sectionEndText: target.sectionEndText ?? context?.sectionEndText ?? '',
+    sectionRangeText: target.sectionRangeText ?? context?.sectionRangeText ?? '',
+    yStartText: target.yStartText ?? '',
+    yEndText: target.yEndText ?? '',
+    sectionDirection: target.sectionDirection,
+    isMultiSeries: getSeriesLabels(meta).length >= 2,
   }
 }
 
@@ -1137,7 +1843,8 @@ export function buildReferenceAnswer(problem, question) {
     question: {
       text: question.text,
       ruleName: question.ruleName,
-      questionSet: '',
+      questionSet: question.questionSet ?? '',
+      section: question.section,
     },
     studentAnswer: '',
     hintLevel: 3,
@@ -1167,9 +1874,7 @@ function delay(ms) {
 
 /**
  * @typedef {Object} CoachingResponse
- * @property {string} praise
- * @property {string} question
- * @property {string} hint
+ * @property {string} help
  * @property {number} hintLevel
  * @property {boolean} showAnswer
  * @property {boolean} [isComplete]
