@@ -5,18 +5,40 @@ const PORT = 8888
 const URL = `http://localhost:${PORT}/`
 const STARTUP_TIMEOUT_MS = 120_000
 
-function openBrowser(url) {
+function runCommand(command) {
+  return new Promise((resolve) => {
+    exec(command, { windowsHide: true }, (error) => {
+      resolve(!error)
+    })
+  })
+}
+
+async function openBrowser(url) {
   if (process.platform === 'win32') {
-    exec(`start "" "${url}"`)
+    const attempts = [
+      `cmd /c start "" chrome --new-window "${url}"`,
+      `cmd /c start "" msedge --new-window "${url}"`,
+      `powershell -NoProfile -Command "Start-Process '${url}'"`,
+      `cmd /c start "" "${url}"`,
+    ]
+
+    for (const command of attempts) {
+      const opened = await runCommand(command)
+      if (opened) {
+        return
+      }
+    }
+
     return
   }
 
   if (process.platform === 'darwin') {
-    exec(`open "${url}"`)
+    await runCommand(`open -na "Google Chrome" --args --new-window "${url}"`)
+    await runCommand(`open "${url}"`)
     return
   }
 
-  exec(`xdg-open "${url}"`)
+  await runCommand(`xdg-open "${url}"`)
 }
 
 function printLaunchBanner(url) {
@@ -28,7 +50,7 @@ function printLaunchBanner(url) {
   console.log('')
   console.log(`  ${url}`)
   console.log('')
-  console.log('  브라우저가 자동으로 열립니다.')
+  console.log('  새 브라우저 창이 자동으로 열립니다.')
   console.log('  열리지 않으면 위 주소를 클릭하거나 복사해 주세요.')
   console.log(line)
   console.log('')
@@ -84,19 +106,20 @@ function isServerRunning(port) {
 
 let browserOpened = false
 
-function launchBrowserOnce() {
+async function launchBrowserOnce() {
   if (browserOpened) return
 
   browserOpened = true
   printLaunchBanner(URL)
-  openBrowser(URL)
+  await openBrowser(URL)
 }
 
 const alreadyRunning = await isServerRunning(PORT)
 
 if (alreadyRunning) {
-  launchBrowserOnce()
   console.log('[dev:live] 포트 8888에서 서버가 이미 실행 중입니다.')
+  console.log('[dev:live] 새 브라우저 창을 엽니다.\n')
+  await launchBrowserOnce()
   console.log('[dev:live] 새로 시작하려면 기존 터미널의 서버를 종료한 뒤 다시 실행해 주세요.\n')
   process.exit(0)
 }
@@ -108,8 +131,8 @@ const child = spawn('npx netlify dev --no-open', {
 })
 
 waitForServer(PORT, STARTUP_TIMEOUT_MS)
-  .then(() => {
-    launchBrowserOnce()
+  .then(async () => {
+    await launchBrowserOnce()
   })
   .catch((error) => {
     console.error(`\n[dev:live] ${error.message}`)

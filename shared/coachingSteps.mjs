@@ -51,7 +51,7 @@ function buildSectionInterpretationLevel3Help(labels) {
     }
 
     if (isDistance) {
-      return `이 구간에서 두 사람의 ${yLabel}가 어떻게 이동했는지 각각 문장으로 써 보세요.`
+      return `이 구간에서 ${formatSeriesNamesWithI(labels.seriesLabels ?? [])} ${yLabel}가 각각 어떻게 변했는지 따로 문장으로 써 보세요.`
     }
 
     if (isSpeed) {
@@ -147,7 +147,7 @@ export function getCoachingSteps(ruleName, labels) {
             help: `${sectionStartText}과 ${sectionEndText}에 해당하는 두 사람의 점을 각각 찾아보세요.`,
           },
           2: {
-            help: `${sectionStartText}과 ${sectionEndText}에 해당하는 ${yLabel}는 각각 얼마인가요?`,
+            help: `${sectionStartText}과 ${sectionEndText}에 ${subjectsWithI} ${yTopic} 각각 얼마인가요?`,
           },
           3: {
             help: buildSectionInterpretationLevel3Help({ ...labels, isMultiSeries: true }),

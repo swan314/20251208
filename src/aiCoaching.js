@@ -9,6 +9,7 @@ import {
 } from '../shared/coachingSteps.mjs'
 import { isGiveUpAnswer } from '../shared/coachingPraise.mjs'
 import {
+  formatSeriesNamesWithI,
   formatSubjectPossessive,
   joinWithAnd,
   withAndParticle,
@@ -747,10 +748,25 @@ function buildSingleSeriesSectionReferenceAnswer(
   )
 }
 
-function buildMultiSeriesSectionReferenceAnswer(meta, section, problem, xUnit, yUnit, yLabel) {
-  const startText = formatXValue(section.xStart, xUnit)
-  const endText = formatXValue(section.xEnd, xUnit)
-  const parts = meta.series
+function buildMultiSeriesSectionReferenceAnswer(meta, section, xUnit, yUnit, yLabel, primaryDirection) {
+  const sectionStartText = formatXValue(section.xStart, xUnit)
+  const sectionEndText = formatXValue(section.xEnd, xUnit)
+  const seriesLabels = getSeriesLabels(meta)
+  const stepLabels = {
+    xLabel: meta.xLabel,
+    yLabel,
+    sectionStartText,
+    sectionEndText,
+    seriesLabels,
+    sectionDirection: primaryDirection,
+    isMultiSeries: true,
+  }
+
+  const step1 = getCoachingHelp('section_interpretation', 1, stepLabels)
+  const step2 = getCoachingHelp('section_interpretation', 2, stepLabels)
+  const step3 = getCoachingHelp('section_interpretation', 3, stepLabels)
+
+  const exampleLines = meta.series
     .filter((entry) => entry.label && entry.points.length)
     .map((entry) => {
       const yStart = findYAtX(entry.points, section.xStart)
@@ -758,16 +774,38 @@ function buildMultiSeriesSectionReferenceAnswer(meta, section, problem, xUnit, y
       if (yStart === null || yEnd === null) return null
 
       const direction = getSectionDirection(yStart, yEnd)
-      const changePhrase = buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction)
-      return `${formatSubjectPossessive(entry.label)} ${changePhrase}`
+      const startValueText = formatYValue(yStart, yUnit)
+      const endValueText = formatYValue(yEnd, yUnit)
+
+      if (direction === 'constant') {
+        return `- ${formatSubjectPossessive(entry.label)} ${withTopicParticle(yLabel)} ${startValueText}로 변하지 않았습니다.`
+      }
+
+      if (isDistanceSectionInterpretation(yLabel)) {
+        return `- ${formatSubjectPossessive(entry.label)} ${withTopicParticle(yLabel)} ${startValueText}에서 ${endValueText}로 이동했습니다.`
+      }
+
+      return `- ${formatSubjectPossessive(entry.label)} ${buildSectionChangePhrase(yLabel, yStart, yEnd, yUnit, direction).replace(/\.$/, '')}.`
     })
     .filter(Boolean)
 
-  if (!parts.length) {
-    return `${startText}부터 ${endText}까지 두 사람의 ${withObjectParticle(yLabel)} 각각 비교해 보세요.`
-  }
+  return [
+    '다음 순서로 각각 설명해 보세요.',
+    '',
+    `1. ${step1.replace(/\n/g, ' ')}`,
+    `2. ${step2.replace(/\n/g, ' ')}`,
+    `3. ${step3.replace(/\n/g, ' ')}`,
+    '',
+    '예시:',
+    ...exampleLines,
+  ].join('\n')
+}
 
-  return wrapGraphConfirmation(`${startText}부터 ${endText}까지 ${joinWithAnd(parts)}.`)
+function buildMultiSeriesSectionSeparateWritingCoaching(meta, labels) {
+  const subjectsWithI = formatSeriesNamesWithI(getSeriesLabels(meta))
+  const { sectionStartText = '', sectionEndText = '' } = labels
+
+  return `${sectionStartText}과 ${sectionEndText}에 ${subjectsWithI} ${withTopicParticle(meta.yLabel)} 각각 얼마인지, 사람마다 따로 문장으로 써 보세요.`
 }
 
 /**
@@ -801,8 +839,16 @@ function resolveCoachingTarget(context, problem) {
     const sectionStartText = formatXValue(section.xStart, xUnit)
     const sectionEndText = formatXValue(section.xEnd, xUnit)
     const isMultiSeries = Boolean(section.isMultiSeries) || isMultiSeriesGraph(meta)
+    const primaryDirection = getSectionDirection(section.yStart, section.yEnd)
     const referenceAnswer = isMultiSeries
-      ? buildMultiSeriesSectionReferenceAnswer(meta, section, problem, xUnit, yUnit, yLabel)
+      ? buildMultiSeriesSectionReferenceAnswer(
+          meta,
+          section,
+          xUnit,
+          yUnit,
+          yLabel,
+          primaryDirection,
+        )
       : buildSingleSeriesSectionReferenceAnswer(
           section.xStart,
           section.xEnd,
@@ -813,7 +859,6 @@ function resolveCoachingTarget(context, problem) {
           yUnit,
           rangePhrase,
         )
-    const primaryDirection = getSectionDirection(section.yStart, section.yEnd)
     const seriesSectionExpectations = isMultiSeries
       ? buildSeriesSectionExpectations(meta, section.xStart, section.xEnd)
       : []
@@ -1339,21 +1384,63 @@ function getSectionExpectedValues(target, meta) {
   return values
 }
 
-function assessMultiSeriesSectionYEndpoints(studentNumbers, target) {
+function getLabelScopedSegments(answer, labels) {
+  const normalized = normalizeAnswer(answer)
+  const positions = labels
+    .map((label) => ({ label, index: normalized.indexOf(normalizeAnswer(label)) }))
+    .filter((entry) => entry.index >= 0)
+    .sort((a, b) => a.index - b.index)
+
+  /** @type {Map<string, string>} */
+  const segments = new Map()
+
+  positions.forEach((entry, index) => {
+    const end = index + 1 < positions.length ? positions[index + 1].index : normalized.length
+    segments.set(entry.label, normalized.slice(entry.index, end))
+  })
+
+  return segments
+}
+
+function segmentHasEndpointValue(segment, expected) {
+  return extractNumbers(segment).some((value) => valueMatchesSectionExpectedNumber(value, expected))
+}
+
+function segmentHasInvalidEndpointValues(segment, allowedValues) {
+  const segmentNumbers = extractNumbers(segment)
+  if (!segmentNumbers.length) {
+    return false
+  }
+
+  return segmentNumbers.some(
+    (value) =>
+      !allowedValues.some((expected) => valueMatchesSectionExpectedNumber(value, expected)),
+  )
+}
+
+function assessMultiSeriesSectionYEndpoints(answer, target) {
   const expectations = target.seriesSectionExpectations ?? []
+  const segments = getLabelScopedSegments(
+    answer,
+    expectations.map((expectation) => expectation.label),
+  )
+
   const seriesResults = expectations.map((expectation) => {
-    const hasYStart = studentNumbers.some((value) =>
-      valueMatchesSectionExpectedNumber(value, expectation.yStart),
-    )
-    const hasYEnd = studentNumbers.some((value) =>
-      valueMatchesSectionExpectedNumber(value, expectation.yEnd),
-    )
+    const segment = segments.get(expectation.label) ?? ''
+    const hasLabel = segment.length > 0
+    const allowedValues = [expectation.yStart, expectation.yEnd]
+    const hasYStart = hasLabel && segmentHasEndpointValue(segment, expectation.yStart)
+    const hasYEnd = hasLabel && segmentHasEndpointValue(segment, expectation.yEnd)
+    const hasWrongNumbersInSegment =
+      hasLabel && segmentHasInvalidEndpointValues(segment, allowedValues)
 
     return {
       ...expectation,
+      hasLabel,
       hasYStart,
       hasYEnd,
-      bothEndpoints: hasYStart && hasYEnd,
+      hasWrongNumbersInSegment,
+      bothEndpoints: hasLabel && hasYStart && hasYEnd && !hasWrongNumbersInSegment,
     }
   })
 
@@ -1361,7 +1448,16 @@ function assessMultiSeriesSectionYEndpoints(studentNumbers, target) {
     seriesResults,
     bothEndpoints: seriesResults.length > 0 && seriesResults.every((result) => result.bothEndpoints),
     anyEndpoint: seriesResults.some((result) => result.hasYStart || result.hasYEnd),
+    hasWrongPairing: seriesResults.some((result) => result.hasWrongNumbersInSegment),
   }
+}
+
+function hasMultiSeriesSectionWrongPairing(answer, target) {
+  if (!target.isMultiSeriesSection) {
+    return false
+  }
+
+  return assessMultiSeriesSectionYEndpoints(answer, target).hasWrongPairing
 }
 
 function hasStrictInvalidSectionNumbers(answer, target, meta) {
@@ -1388,20 +1484,18 @@ function hasStrictSectionYEndpoints(answer, target, meta) {
   }
 
   if (target.isMultiSeriesSection) {
-    return assessMultiSeriesSectionYEndpoints(studentNumbers, target).bothEndpoints
+    return assessMultiSeriesSectionYEndpoints(answer, target).bothEndpoints
   }
 
   return assessStrictSectionYEndpoints(studentNumbers, target).bothEndpoints
 }
 
 function assessStrictSectionEndpoints(answer, target, meta) {
-  const studentNumbers = extractNumbers(answer)
-
   if (target.isMultiSeriesSection) {
-    return assessMultiSeriesSectionYEndpoints(studentNumbers, target)
+    return assessMultiSeriesSectionYEndpoints(answer, target)
   }
 
-  return assessStrictSectionYEndpoints(studentNumbers, target)
+  return assessStrictSectionYEndpoints(extractNumbers(answer), target)
 }
 
 function includesSeriesLabel(answer, label) {
@@ -1414,15 +1508,35 @@ function hasMultiSeriesSectionQuantityContext(answer, meta) {
 }
 
 function hasMultiSeriesSectionDirectionSignal(answer, meta, expectations) {
-  return expectations.every((expectation) =>
-    hasSectionDirectionSignal(answer, meta.yLabel, expectation.direction),
+  const segments = getLabelScopedSegments(
+    answer,
+    expectations.map((expectation) => expectation.label),
   )
+
+  return expectations.every((expectation) => {
+    const segment = segments.get(expectation.label) ?? ''
+    if (!segment) {
+      return false
+    }
+
+    return hasSectionDirectionSignal(segment, meta.yLabel, expectation.direction)
+  })
 }
 
 function hasMultiSeriesSectionDirectionMismatch(answer, meta, expectations) {
-  return expectations.some((expectation) =>
-    hasSectionDirectionMismatch(answer, meta.yLabel, expectation.direction),
+  const segments = getLabelScopedSegments(
+    answer,
+    expectations.map((expectation) => expectation.label),
   )
+
+  return expectations.some((expectation) => {
+    const segment = segments.get(expectation.label) ?? ''
+    if (!segment) {
+      return false
+    }
+
+    return hasSectionDirectionMismatch(segment, meta.yLabel, expectation.direction)
+  })
 }
 
 function hasRequiredSectionQuantityContext(answer, meta, target) {
@@ -1655,6 +1769,32 @@ function buildCoachingResponseFromQuality(
     help = buildSectionMeaningCoaching(meta, labels)
   }
 
+  if (
+    ruleName === 'section_interpretation'
+    && target.isMultiSeriesSection
+    && (quality === 'partial' || quality === 'wrong')
+    && stepLevel >= 3
+    && hasMultiSeriesSectionQuantityContext(studentAnswer, meta)
+    && !hasStrictSectionYEndpoints(studentAnswer, target, meta)
+    && !hasMultiSeriesSectionWrongPairing(studentAnswer, target)
+  ) {
+    help = buildMultiSeriesSectionSeparateWritingCoaching(meta, labels)
+  }
+
+  if (
+    ruleName === 'section_interpretation'
+    && target.isMultiSeriesSection
+    && hasMultiSeriesSectionWrongPairing(studentAnswer, target)
+  ) {
+    const mismatched = assessMultiSeriesSectionYEndpoints(studentAnswer, target).seriesResults.find(
+      (result) => result.hasWrongNumbersInSegment,
+    )
+
+    if (mismatched) {
+      help = `${formatSubjectPossessive(mismatched.label)} 그래프에서 읽은 시작값과 끝값이 맞는지 다시 확인해 보세요.`
+    }
+  }
+
   if (ruleName === 'point_value' && isMultiSeriesGraph(meta)) {
     const seriesStatus = getSeriesValueMatchStatus(studentAnswer, target, meta)
     const missingSeriesHelp = buildMissingSeriesCoaching(seriesStatus, meta, xText)
@@ -1696,7 +1836,10 @@ function classifySectionInterpretationQuality(answer, target, meta) {
   const directionMismatch = target.isMultiSeriesSection
     ? hasMultiSeriesSectionDirectionMismatch(answer, meta, expectations)
     : hasSectionDirectionMismatch(answer, meta.yLabel, direction)
-  const hasInvalidNumbers = claimsNumericValues && hasStrictInvalidSectionNumbers(answer, target, meta)
+  const hasInvalidNumbers =
+    claimsNumericValues
+    && (hasStrictInvalidSectionNumbers(answer, target, meta)
+      || hasMultiSeriesSectionWrongPairing(answer, target))
 
   if (hasInvalidNumbers) {
     return 'wrong'
