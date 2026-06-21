@@ -7,10 +7,14 @@ const VALUE_MATCH_TOLERANCE = 0.2
 
 const CONSTANT_KEYWORDS = [
   '변하지',
+  '변함없',
   '유지',
+  '유지되',
   '같',
   '그대로',
+  '그대로이',
   '일정',
+  '일정하',
   '변화가 없',
   '변화 없',
   '이동하지',

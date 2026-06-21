@@ -305,6 +305,8 @@ function isAnswerCloseToText(studentAnswer, expectedTexts) {
  * @property {string} [yStartText]
  * @property {string} [yEndText]
  * @property {'constant' | 'increase' | 'decrease'} [sectionDirection]
+ * @property {boolean} [isMultiSeriesSection]
+ * @property {{ label: string, yStart: number, yEnd: number, direction: 'constant' | 'increase' | 'decrease' }[]} [seriesSectionExpectations]
  */
 
 function getSeriesLabels(meta) {
@@ -414,20 +416,26 @@ function isHeightSectionInterpretation(yLabel) {
 
 const MOVEMENT_DIRECTION_KEYWORDS = ['이동', '움직', '나아', '다녀', '걸']
 
+const SECTION_CONSTANT_SYNONYMS = [
+  '변하지',
+  '변함없',
+  '유지',
+  '유지되',
+  '같',
+  '그대로',
+  '그대로이',
+  '일정',
+  '일정하',
+  '변화가 없',
+  '변화 없',
+  '이동하지',
+  '멈',
+  '정지',
+  '쉬',
+]
+
 function getSectionDirectionDetectionKeywords(yLabel, direction) {
-  const constantKeywords = [
-    '변하지',
-    '유지',
-    '같',
-    '그대로',
-    '일정',
-    '변화가 없',
-    '변화 없',
-    '이동하지',
-    '멈',
-    '정지',
-    '쉬',
-  ]
+  const constantKeywords = SECTION_CONSTANT_SYNONYMS
   const genericIncreaseKeywords = ['증가', '올라', '올랐', '상승', '커', '커졌', '늘', '늘었']
   const genericDecreaseKeywords = ['감소', '내려', '내렸', '하강', '작아', '작아졌', '줄', '줄었']
   const speedIncreaseKeywords = ['증가', '빨라', '빨라졌', '빨라지', '늘어남', '늘어났', '늘었', '늘']
@@ -591,21 +599,28 @@ function getSectionFocusedCoachingType(answer, target, quality, meta) {
   }
 
   const studentNumbers = extractNumbers(answer)
-  if (!studentNumbers.length || !hasStrictSectionYEndpoints(answer, target)) {
+  if (!studentNumbers.length || !hasStrictSectionYEndpoints(answer, target, meta)) {
     return null
   }
 
   const direction = target.sectionDirection ?? 'increase'
+  const expectations = target.seriesSectionExpectations ?? []
+  const directionMismatch = target.isMultiSeriesSection
+    ? hasMultiSeriesSectionDirectionMismatch(answer, meta, expectations)
+    : hasSectionDirectionMismatch(answer, meta.yLabel, direction)
+  const hasDirection = target.isMultiSeriesSection
+    ? hasMultiSeriesSectionDirectionSignal(answer, meta, expectations)
+    : hasSectionDirectionSignal(answer, meta.yLabel, direction)
 
   if (
-    hasSectionDirectionMismatch(answer, meta.yLabel, direction)
+    directionMismatch
     || usesForbiddenMovementWording(meta.yLabel, answer, direction)
-    || !hasSectionDirectionSignal(answer, meta.yLabel, direction)
+    || !hasDirection
   ) {
     return 'expression'
   }
 
-  if (!hasRequiredQuantityContext(answer, meta)) {
+  if (!hasRequiredSectionQuantityContext(answer, meta, target)) {
     return 'meaning'
   }
 
@@ -799,6 +814,9 @@ function resolveCoachingTarget(context, problem) {
           rangePhrase,
         )
     const primaryDirection = getSectionDirection(section.yStart, section.yEnd)
+    const seriesSectionExpectations = isMultiSeries
+      ? buildSeriesSectionExpectations(meta, section.xStart, section.xEnd)
+      : []
 
     return finalizeCoachingTarget(
       {
@@ -814,6 +832,8 @@ function resolveCoachingTarget(context, problem) {
         yStartText: formatYValue(section.yStart, yUnit),
         yEndText: formatYValue(section.yEnd, yUnit),
         sectionDirection: primaryDirection,
+        isMultiSeriesSection: isMultiSeries,
+        seriesSectionExpectations,
       },
       ruleName,
       meta,
@@ -1261,56 +1281,180 @@ function assessStrictSectionYEndpoints(studentNumbers, target) {
   }
 }
 
-function hasStrictSectionYEndpoints(answer, target) {
-  const studentNumbers = extractNumbers(answer)
-  if (!studentNumbers.length) {
-    return false
+function buildSeriesSectionExpectations(meta, xStart, xEnd) {
+  if (xStart === undefined || xEnd === undefined) {
+    return []
   }
 
-  return (
-    assessStrictSectionYEndpoints(studentNumbers, target).bothEndpoints
-    && !hasStrictInvalidSectionNumbers(answer, target)
-  )
+  return meta.series
+    .filter((entry) => entry.label && entry.points.length)
+    .map((entry) => {
+      const yStart = findYAtX(entry.points, xStart)
+      const yEnd = findYAtX(entry.points, xEnd)
+
+      if (yStart === null || yEnd === null) {
+        return null
+      }
+
+      return {
+        label: entry.label,
+        yStart,
+        yEnd,
+        direction: getSectionDirection(yStart, yEnd),
+      }
+    })
+    .filter(Boolean)
 }
 
-function hasStrictInvalidSectionNumbers(answer, target) {
+function getSectionExpectedValues(target, meta) {
+  const xStart = target.expectedNumbers?.[0]
+  const xEnd = target.expectedNumbers?.[1]
+  const values = []
+
+  if (xStart !== undefined && xStart !== null) {
+    values.push(xStart)
+  }
+
+  if (xEnd !== undefined && xEnd !== null) {
+    values.push(xEnd)
+  }
+
+  if (target.isMultiSeriesSection && meta) {
+    buildSeriesSectionExpectations(meta, xStart, xEnd).forEach((expectation) => {
+      values.push(expectation.yStart, expectation.yEnd)
+    })
+  } else {
+    const yStart = target.expectedNumbers?.[2]
+    const yEnd = target.expectedNumbers?.[3] ?? target.sectionEndY
+
+    if (yStart !== undefined && yStart !== null) {
+      values.push(yStart)
+    }
+
+    if (yEnd !== undefined && yEnd !== null) {
+      values.push(yEnd)
+    }
+  }
+
+  return values
+}
+
+function assessMultiSeriesSectionYEndpoints(studentNumbers, target) {
+  const expectations = target.seriesSectionExpectations ?? []
+  const seriesResults = expectations.map((expectation) => {
+    const hasYStart = studentNumbers.some((value) =>
+      valueMatchesSectionExpectedNumber(value, expectation.yStart),
+    )
+    const hasYEnd = studentNumbers.some((value) =>
+      valueMatchesSectionExpectedNumber(value, expectation.yEnd),
+    )
+
+    return {
+      ...expectation,
+      hasYStart,
+      hasYEnd,
+      bothEndpoints: hasYStart && hasYEnd,
+    }
+  })
+
+  return {
+    seriesResults,
+    bothEndpoints: seriesResults.length > 0 && seriesResults.every((result) => result.bothEndpoints),
+    anyEndpoint: seriesResults.some((result) => result.hasYStart || result.hasYEnd),
+  }
+}
+
+function hasStrictInvalidSectionNumbers(answer, target, meta) {
   const studentNumbers = extractNumbers(answer)
   if (!studentNumbers.length) {
     return false
   }
 
-  const allowedValues = getSectionExpectedValues(target)
+  const allowedValues = getSectionExpectedValues(target, meta)
   return studentNumbers.some(
     (value) =>
       !allowedValues.some((expected) => valueMatchesSectionExpectedNumber(value, expected)),
   )
 }
 
-function getSectionExpectedValues(target) {
-  const xStart = target.expectedNumbers?.[0]
-  const xEnd = target.expectedNumbers?.[1]
-  const yStart = target.expectedNumbers?.[2]
-  const yEnd = target.expectedNumbers?.[3] ?? target.sectionEndY
-
-  return [xStart, xEnd, yStart, yEnd].filter((value) => value !== undefined && value !== null)
-}
-
-function isValueAllowedInSectionAnswer(value, target) {
-  return getSectionExpectedValues(target).some((expected) => valueMatchesExpectedNumber(value, expected))
-}
-
-function hasUnexpectedSectionNumbers(answer, target) {
+function hasStrictSectionYEndpoints(answer, target, meta) {
   const studentNumbers = extractNumbers(answer)
   if (!studentNumbers.length) {
     return false
   }
 
-  return studentNumbers.some((value) => !isValueAllowedInSectionAnswer(value, target))
+  if (hasStrictInvalidSectionNumbers(answer, target, meta)) {
+    return false
+  }
+
+  if (target.isMultiSeriesSection) {
+    return assessMultiSeriesSectionYEndpoints(studentNumbers, target).bothEndpoints
+  }
+
+  return assessStrictSectionYEndpoints(studentNumbers, target).bothEndpoints
 }
 
-function hasExactSectionEndpointValues(answer, target) {
+function assessStrictSectionEndpoints(answer, target, meta) {
+  const studentNumbers = extractNumbers(answer)
+
+  if (target.isMultiSeriesSection) {
+    return assessMultiSeriesSectionYEndpoints(studentNumbers, target)
+  }
+
+  return assessStrictSectionYEndpoints(studentNumbers, target)
+}
+
+function includesSeriesLabel(answer, label) {
+  return includesLabel(answer, label)
+}
+
+function hasMultiSeriesSectionQuantityContext(answer, meta) {
+  const seriesLabels = getSeriesLabels(meta)
+  return seriesLabels.length >= 2 && seriesLabels.every((label) => includesSeriesLabel(answer, label))
+}
+
+function hasMultiSeriesSectionDirectionSignal(answer, meta, expectations) {
+  return expectations.every((expectation) =>
+    hasSectionDirectionSignal(answer, meta.yLabel, expectation.direction),
+  )
+}
+
+function hasMultiSeriesSectionDirectionMismatch(answer, meta, expectations) {
+  return expectations.some((expectation) =>
+    hasSectionDirectionMismatch(answer, meta.yLabel, expectation.direction),
+  )
+}
+
+function hasRequiredSectionQuantityContext(answer, meta, target) {
+  if (includesLabel(answer, meta.yLabel) || hasCorrectYUnitInAnswer(answer, meta.yUnit)) {
+    return true
+  }
+
+  if (target.isMultiSeriesSection) {
+    return hasMultiSeriesSectionQuantityContext(answer, meta)
+  }
+
+  return false
+}
+
+function isValueAllowedInSectionAnswer(value, target, meta) {
+  return getSectionExpectedValues(target, meta).some((expected) =>
+    valueMatchesSectionExpectedNumber(value, expected),
+  )
+}
+
+function hasUnexpectedSectionNumbers(answer, target, meta) {
+  const studentNumbers = extractNumbers(answer)
+  if (!studentNumbers.length) {
+    return false
+  }
+
+  return studentNumbers.some((value) => !isValueAllowedInSectionAnswer(value, target, meta))
+}
+
+function hasExactSectionEndpointValues(answer, target, meta) {
   return assessSectionEndpointValues(extractNumbers(answer), target).bothEndpoints
-    && !hasUnexpectedSectionNumbers(answer, target)
+    && !hasUnexpectedSectionNumbers(answer, target, meta)
 }
 
 /**
@@ -1540,14 +1684,19 @@ function buildCoachingResponseFromQuality(
 function classifySectionInterpretationQuality(answer, target, meta) {
   const direction = target.sectionDirection ?? 'increase'
   const studentNumbers = extractNumbers(answer)
-  const endpointInfo = assessStrictSectionYEndpoints(studentNumbers, target)
+  const endpointInfo = assessStrictSectionEndpoints(answer, target, meta)
   const mentionsYLabel = includesLabel(answer, meta.yLabel)
   const hasRangeContext = hasSectionRangeContext(answer, target)
-  const hasDirection = hasSectionDirectionSignal(answer, meta.yLabel, direction)
-  const yEndpointsCorrect = hasStrictSectionYEndpoints(answer, target)
+  const expectations = target.seriesSectionExpectations ?? []
+  const hasDirection = target.isMultiSeriesSection
+    ? hasMultiSeriesSectionDirectionSignal(answer, meta, expectations)
+    : hasSectionDirectionSignal(answer, meta.yLabel, direction)
+  const yEndpointsCorrect = hasStrictSectionYEndpoints(answer, target, meta)
   const claimsNumericValues = studentNumbers.length > 0
-  const directionMismatch = hasSectionDirectionMismatch(answer, meta.yLabel, direction)
-  const hasInvalidNumbers = claimsNumericValues && hasStrictInvalidSectionNumbers(answer, target)
+  const directionMismatch = target.isMultiSeriesSection
+    ? hasMultiSeriesSectionDirectionMismatch(answer, meta, expectations)
+    : hasSectionDirectionMismatch(answer, meta.yLabel, direction)
+  const hasInvalidNumbers = claimsNumericValues && hasStrictInvalidSectionNumbers(answer, target, meta)
 
   if (hasInvalidNumbers) {
     return 'wrong'
@@ -1558,7 +1707,7 @@ function classifySectionInterpretationQuality(answer, target, meta) {
   }
 
   if (directionMismatch) {
-    return yEndpointsCorrect ? 'partial' : 'partial'
+    return 'partial'
   }
 
   if (usesForbiddenMovementWording(meta.yLabel, answer, direction) && !yEndpointsCorrect) {
@@ -1566,11 +1715,15 @@ function classifySectionInterpretationQuality(answer, target, meta) {
   }
 
   if (yEndpointsCorrect) {
-    if (hasExplicitWrongYUnit(answer, meta.yUnit) && !mentionsYLabel) {
+    if (
+      hasExplicitWrongYUnit(answer, meta.yUnit)
+      && !mentionsYLabel
+      && !target.isMultiSeriesSection
+    ) {
       return 'wrong'
     }
 
-    if (!hasRequiredQuantityContext(answer, meta)) {
+    if (!hasRequiredSectionQuantityContext(answer, meta, target)) {
       return 'partial'
     }
 
@@ -1605,11 +1758,7 @@ function classifySectionInterpretationQuality(answer, target, meta) {
     }
   }
 
-  if (
-    hasDirection
-    && mentionsYLabel
-    && !claimsNumericValues
-  ) {
+  if (hasDirection && mentionsYLabel && !claimsNumericValues) {
     return 'close'
   }
 
