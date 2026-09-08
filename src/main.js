@@ -539,7 +539,7 @@ function renderList() {
   return `
     <div class="app-shell">
       <header class="app-header">
-        <h1>📊 그래프 해석 학습 도구</h1>
+        <h1>📊 그래프 해석</h1>
         <p>카드를 눌러 그래프 문제를 살펴보세요</p>
       </header>
       <main class="app-main">
@@ -562,7 +562,7 @@ function renderDetail(problemId) {
     return `
       <div class="app-shell">
         <header class="app-header">
-          <h1>📊 그래프 해석 학습 도구</h1>
+          <h1>📊 그래프 해석</h1>
         </header>
         <main class="app-main">
           <button class="back-button" type="button" data-nav="list">← 목록으로</button>
@@ -589,7 +589,7 @@ function renderDetail(problemId) {
   return `
     <div class="app-shell${isFinalReview ? ' app-shell--final-review' : ''}">
       <header class="app-header">
-        <h1>📊 그래프 해석 학습 도구</h1>
+        <h1>📊 그래프 해석</h1>
         <p>${isFinalReview ? '그래프를 보며 최종 이야기를 작성해 보세요' : '문제 정보를 확인해 보세요'}</p>
       </header>
       <main class="app-main${isFinalReview ? ' app-main--final-review' : ''}">
@@ -1208,7 +1208,7 @@ async function init() {
     app.innerHTML = `
       <div class="app-shell">
         <header class="app-header">
-          <h1>📊 그래프 해석 학습 도구</h1>
+          <h1>📊 그래프 해석</h1>
         </header>
         <main class="app-main">
           <p class="error-message">${escapeHtml(error.message)}</p>
